@@ -85,6 +85,7 @@ def load_state():
         st = {}
     st.setdefault("seen", [])
     st.setdefault("recent_titles", [])
+    st.setdefault("recent_headlines", [])
     st.setdefault("posts", {})
     return st
 
@@ -92,6 +93,7 @@ def load_state():
 def save_state(st):
     st["seen"] = st["seen"][-5000:]
     st["recent_titles"] = st["recent_titles"][-300:]
+    st["recent_headlines"] = st["recent_headlines"][-30:]
     st["posts"] = {k: st["posts"][k] for k in sorted(st["posts"])[-7:]}
     STATE_PATH.parent.mkdir(exist_ok=True)
     STATE_PATH.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
@@ -201,12 +203,25 @@ def select(ranked, n):
 
 
 # ------------------------------------------------------------------ gemini
-def pick_style():
-    styles = CFG["styles"]
-    return random.choices(styles, weights=[s["w"] for s in styles])[0]
+def pick_styles(n):
+    """n styles, all different within one run when possible (weighted by config)."""
+    pool, out = list(CFG["styles"]), []
+    for _ in range(n):
+        if not pool:
+            pool = list(CFG["styles"])
+        s = random.choices(pool, weights=[x["w"] for x in pool])[0]
+        out.append(s)
+        pool.remove(s)
+    return out
 
 
-def build_prompt(items):
+def build_prompt(items, recent=()):
+    recent_block = ""
+    if recent:
+        recent_block = (
+            "\n\nمنشورات نُشرت مؤخرًا على الصفحة (ضع skip=true لأي خبر يتناول نفس الحدث):\n"
+            + "\n".join(f"- {h}" for h in recent)
+        )
     blocks = []
     for it in items:
         st = it["style"]
@@ -220,11 +235,14 @@ def build_prompt(items):
         "اكتب منشورًا واحدًا لكل خبر من الأخبار التالية، بالأسلوب المحدد له.\n\n"
         "القواعد:\n"
         "- اكتب بكلماتك أنت، ولا تنسخ عبارات من المصدر. المصدر قد يكون بالإنجليزية، والمنشور دائمًا بالعربية.\n"
+        "- اكتب بالعربية الفصحى المبسطة الرسمية فقط. ممنوع العامية المصرية أو أي لهجة أخرى، حتى في الأسئلة والتعليقات القصيرة.\n"
         "- استخدم فقط المعلومات الموجودة في العنوان والتفاصيل. لا تخترع أرقامًا أو تصريحات أو نتائج.\n"
         "- ممنوع إضافة أي حكم أو وصف غير مذكور في المصدر، مثل «أداء لافتًا» أو «تألق» أو «ضربة موجعة» أو «هيكتب التاريخ». "
         "لو المتاح عنوان فقط، فاكتفِ بمعلومات العنوان وصغها بحماس بدون أي إضافة.\n"
         "- لا تتوقع ولا تعلّق بمبالغة على مباراة لم تنتهِ. الأسلوب الساخر أو الحماسي يخص الصياغة فقط، ولا يضيف وقائع ولا يسخر من شخص.\n"
         "- لا تصف فوزًا بأنه «مستحق» أو «كبير»، ولا مباراة بأنها «كلاسيكو» أو «قمة» أو «تاريخية» أو «لا تُنسى»، إلا لو المصدر قال ذلك صراحة.\n"
+        "- لو خبران أو أكثر في القائمة يتناولان نفس الحدث (مثل نفس نتيجة المباراة)، اكتب منشورًا لواحد فقط وضع skip=true للباقي.\n"
+        "- لا تكتب «الكل بيتكلم» أو «الجميع يرى» أو ما شابه إلا لو المصدر قال ذلك. راجع الإملاء والنحو (مثل «ثلاث نقاط» وليس «ثلاثة نقطة»).\n"
         "- لو الخبر شائعة أو غير مؤكد، صغه بحذر (بحسب تقارير / يتردد أن) أو ضع skip=true.\n"
         "- ضع skip=true لو الخبر ليس عن كرة القدم، أو ضعيف جدًا، أو تافه.\n"
         "- الطول من سطرين إلى خمسة أسطر. إيموجي من 1 إلى 3 بذوق.\n"
@@ -234,7 +252,7 @@ def build_prompt(items):
         "- لا تذكر المصدر في النص (سيُضاف تلقائيًا). لا روابط في النص.\n"
         "- لا إساءة لأي لاعب أو نادٍ أو جمهور أو دولة.\n\n"
         'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "..."}\n\n'
-        "الأخبار:\n\n" + "\n\n".join(blocks)
+        "الأخبار:\n\n" + "\n\n".join(blocks) + recent_block
     )
 
 
@@ -259,8 +277,8 @@ def call_gemini(prompt, model):
     raise RuntimeError(f"Gemini failed on {model}: {last}")
 
 
-def write_posts(items):
-    prompt = build_prompt(items)
+def write_posts(items, recent=()):
+    prompt = build_prompt(items, recent)
     try:
         return call_gemini(prompt, S["gemini_model"])
     except Exception as e:
@@ -325,10 +343,10 @@ def main():
         print("nothing new")
         return
 
-    chosen = select(ranked, n + 2)  # a couple of spares in case Gemini skips some
-    for it in chosen:
-        it["style"] = pick_style()
-    results = {r.get("id"): r for r in write_posts(chosen) if isinstance(r, dict)}
+    chosen = select(ranked, n + 3)  # spares in case Gemini skips some or finds duplicates
+    for it, stl in zip(chosen, pick_styles(len(chosen))):
+        it["style"] = stl
+    results = {r.get("id"): r for r in write_posts(chosen, st["recent_headlines"][-25:]) if isinstance(r, dict)}
 
     published = 0
     for it in chosen:
@@ -356,6 +374,7 @@ def main():
             print(f"::warning::{e}", file=sys.stderr)
             continue
         st["recent_titles"].append(sorted(it["tok"]))
+        st["recent_headlines"].append(it["title"])
         st["posts"][today] = st["posts"].get(today, 0) + 1
         published += 1
         print(f"posted {post_id}: {it['title'][:70]}")
