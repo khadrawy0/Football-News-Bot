@@ -19,6 +19,7 @@ import random
 import re
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -32,6 +33,8 @@ CAIRO = ZoneInfo("Africa/Cairo")
 UA = {"User-Agent": "Mozilla/5.0 (compatible; FootballNewsBot/1.0)"}
 CFG = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
 S = CFG["settings"]
+DROPPED = Counter()
+SKIP_RE = [re.compile(p) for p in S.get("skip_title_patterns", [])]
 
 
 # ----------------------------------------------------------------- helpers
@@ -63,6 +66,15 @@ def tokens(t):
 
 def jaccard(a, b):
     return len(a & b) / len(a | b) if a and b else 0.0
+
+
+TRUSTED = [norm_ar(p.lower()) for p in S.get("trusted_publishers", [])]
+
+
+def is_trusted(label):
+    """Google News items only count if the publisher is on the allowlist."""
+    n = norm_ar((label or "").lower()).strip()
+    return any(n == p or n.startswith(p + " ") or n.startswith(p + ".") for p in TRUSTED)
 
 
 # ------------------------------------------------------------------- state
@@ -106,11 +118,16 @@ def fetch_source(src):
             pub = (e.get("source") or {}).get("title")
             title = re.sub(r"\s+-\s+[^-]+$", "", title)
             source_label = pub or src["name"].replace("GNews - ", "")
+            if TRUSTED and not is_trusted(source_label):
+                DROPPED[source_label] += 1
+                continue
             summary = ""
         else:
             summary = clean(e.get("summary", ""))[:400]
         link = e.get("link", "")
         if not title or not link:
+            continue
+        if any(p.search(title) for p in SKIP_RE):  # live blogs, streaming/TV listings
             continue
         items.append(
             {
@@ -204,9 +221,14 @@ def build_prompt(items):
         "القواعد:\n"
         "- اكتب بكلماتك أنت، ولا تنسخ عبارات من المصدر. المصدر قد يكون بالإنجليزية، والمنشور دائمًا بالعربية.\n"
         "- استخدم فقط المعلومات الموجودة في العنوان والتفاصيل. لا تخترع أرقامًا أو تصريحات أو نتائج.\n"
+        "- ممنوع إضافة أي حكم أو وصف غير مذكور في المصدر، مثل «أداء لافتًا» أو «تألق» أو «ضربة موجعة» أو «هيكتب التاريخ». "
+        "لو المتاح عنوان فقط، فاكتفِ بمعلومات العنوان وصغها بحماس بدون أي إضافة.\n"
+        "- لا تتوقع ولا تعلّق بمبالغة على مباراة لم تنتهِ. الأسلوب الساخر أو الحماسي يخص الصياغة فقط، ولا يضيف وقائع ولا يسخر من شخص.\n"
         "- لو الخبر شائعة أو غير مؤكد، صغه بحذر (بحسب تقارير / يتردد أن) أو ضع skip=true.\n"
         "- ضع skip=true لو الخبر ليس عن كرة القدم، أو ضعيف جدًا، أو تافه.\n"
-        "- الطول من سطرين إلى خمسة أسطر. إيموجي من 1 إلى 3 بذوق، وهاشتاجات من 2 إلى 4 في آخر المنشور.\n"
+        "- الطول من سطرين إلى خمسة أسطر. إيموجي من 1 إلى 3 بذوق.\n"
+        "- قسّم المنشور بأسطر فارغة (\\n\\n): سطر افتتاحي، ثم الخبر، ثم سؤال أو تعليق قصير اختياري، "
+        "ثم سطر منفصل أخير للهاشتاجات (من 2 إلى 4).\n"
         "- ابدأ بجملة قوية تشد القارئ، ونوّع في الافتتاحيات بين المنشورات.\n"
         "- لا تذكر المصدر في النص (سيُضاف تلقائيًا). لا روابط في النص.\n"
         "- لا إساءة لأي لاعب أو نادٍ أو جمهور أو دولة.\n\n"
@@ -295,6 +317,8 @@ def main():
 
     items = fetch_all()
     print(f"fetched {len(items)} fresh items from {len(CFG['sources'])} sources")
+    if DROPPED:
+        print("dropped (publisher not trusted):", ", ".join(f"{k}({v})" for k, v in DROPPED.most_common(15)))
     ranked = rank(items, st)
     if not ranked:
         print("nothing new")

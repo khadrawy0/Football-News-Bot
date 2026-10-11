@@ -8,6 +8,77 @@ settings:
   gemini_fallback_model: gemini-2.5-flash-lite
   graph_version: v23.0           # check developers.facebook.com for the current version
 
+  # Titles matching any regex are dropped (live blogs, streaming/TV listings)
+  skip_title_patterns:
+    - '(?i)(^|[–\-|:])\s*live\b'
+    - '(?i)\blive (blog|updates|score|stream|coverage|text)'
+    - 'بث مباشر'
+    - 'مشاهدة'
+    - 'القنوات الناقلة'
+    - 'لايف'
+
+  # Google News items are posted only if their publisher is listed here
+  # (matched at the start of the publisher name, case-insensitive).
+  # The run log prints "dropped (publisher not trusted)" so you can add good ones.
+  trusted_publishers:
+    - BBC
+    - Sky Sports
+    - Sky News
+    - The Guardian
+    - ESPN
+    - Goal
+    - The Athletic
+    - Reuters
+    - Associated Press
+    - AP News
+    - Marca
+    - AS.com
+    - Diario AS
+    - Football Italia
+    - Sporting News
+    - talkSPORT
+    - CBS Sports
+    - Fox Sports
+    - NBC Sports
+    - The Independent
+    - The Telegraph
+    - The Times
+    - Evening Standard
+    - FourFourTwo
+    - 90min
+    - Sports Illustrated
+    - Yahoo Sports
+    - L'Equipe
+    - Gazzetta dello Sport
+    - Mundo Deportivo
+    - Relevo
+    - Kicker
+    - اليوم السابع
+    - يلا كورة
+    - Yallakora
+    - في الجول
+    - فى الجول
+    - FilGoal
+    - Kooora
+    - مصراوي
+    - Masrawy
+    - الأهرام
+    - Ahram
+    - المصري اليوم
+    - Al-Masry Al-Youm
+    - الشروق
+    - القاهرة 24
+    - الوطن
+    - صدى البلد
+    - بي إن سبورتس
+    - beIN SPORTS
+    - سكاي نيوز عربية
+    - العربية
+    - الجزيرة
+    - Al Jazeera
+    - بي بي سي
+    - CNN
+
 # weight: higher = more trusted/important. region: intl | eg
 # attach_link: false for Google News redirect links (Facebook previews them badly)
 sources:
