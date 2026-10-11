@@ -1,0 +1,48 @@
+settings:
+  daily_cap: 60                  # max posts per Cairo day
+  max_posts_per_run: 3           # posts per hourly run
+  max_age_hours: 12              # ignore news older than this
+  quiet_hours_cairo: [1, 7]      # no posting from 01:00 to 06:59 Cairo time
+  delay_between_posts_sec: [20, 60]
+  gemini_model: gemini-2.5-flash
+  gemini_fallback_model: gemini-2.5-flash-lite
+  graph_version: v23.0           # check developers.facebook.com for the current version
+
+# weight: higher = more trusted/important. region: intl | eg
+# attach_link: false for Google News redirect links (Facebook previews them badly)
+sources:
+  # ---------- International (direct RSS) ----------
+  - {name: BBC Sport, url: "https://feeds.bbci.co.uk/sport/football/rss.xml", weight: 5, region: intl, attach_link: true}
+  - {name: Sky Sports, url: "https://www.skysports.com/rss/12040", weight: 5, region: intl, attach_link: true}
+  - {name: The Guardian, url: "https://www.theguardian.com/football/rss", weight: 5, region: intl, attach_link: true}
+  - {name: ESPN, url: "https://www.espn.com/espn/rss/soccer/news", weight: 4, region: intl, attach_link: true}
+  - {name: Goal, url: "https://www.goal.com/feeds/en/news", weight: 4, region: intl, attach_link: true}
+  - {name: Football Italia, url: "https://football-italia.net/feed/", weight: 3, region: intl, attach_link: true}
+
+  # ---------- International (Google News aggregation, English) ----------
+  - {name: GNews - Premier League, url: "https://news.google.com/rss/search?q=Premier+League+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Champions League, url: "https://news.google.com/rss/search?q=Champions+League+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - La Liga, url: "https://news.google.com/rss/search?q=La+Liga+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Serie A, url: "https://news.google.com/rss/search?q=Serie+A+football+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Bundesliga, url: "https://news.google.com/rss/search?q=Bundesliga+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Transfers, url: "https://news.google.com/rss/search?q=football+transfer+official+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Salah, url: "https://news.google.com/rss/search?q=Mohamed+Salah+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - World Cup, url: "https://news.google.com/rss/search?q=World+Cup+2026+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+
+  # ---------- Egyptian / Arabic (Google News, Arabic) ----------
+  - {name: GNews - الأهلي والزمالك, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%A3%D9%87%D9%84%D9%8A+%D8%A7%D9%84%D8%B2%D9%85%D8%A7%D9%84%D9%83+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - الدوري المصري, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D9%85%D8%B5%D8%B1%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - المنتخب المصري, url: "https://news.google.com/rss/search?q=%D9%85%D9%86%D8%AA%D8%AE%D8%A8+%D9%85%D8%B5%D8%B1+%D9%83%D8%B1%D8%A9+%D9%82%D8%AF%D9%85+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - محمد صلاح, url: "https://news.google.com/rss/search?q=%D9%85%D8%AD%D9%85%D8%AF+%D8%B5%D9%84%D8%A7%D8%AD+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - يلا كورة, url: "https://news.google.com/rss/search?q=site:yallakora.com+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - في الجول, url: "https://news.google.com/rss/search?q=site:filgoal.com+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - اليوم السابع رياضة, url: "https://news.google.com/rss/search?q=site:youm7.com+%D9%83%D8%B1%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - كورة العالمية, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D8%A5%D9%86%D8%AC%D9%84%D9%8A%D8%B2%D9%8A+%D8%A7%D9%84%D8%A5%D8%B3%D8%A8%D8%A7%D9%86%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
+
+# Writing styles; one is assigned randomly to every post (weight = how often)
+styles:
+  - {w: 3, name: "رسمي إخباري", desc: "نبرة نشرة أخبار رسمية بالعربية الفصحى المبسطة، جملة افتتاحية قوية ومباشرة"}
+  - {w: 4, name: "عامية مصرية حماسية", desc: "عامية مصرية حماسية زي معلق شاطر، طاقة عالية وكلمات مصرية طبيعية من غير مبالغة"}
+  - {w: 3, name: "عامية مصرية بسؤال تفاعلي", desc: "عامية مصرية، الخبر في سطرين وبعدها سؤال ذكي للجمهور يحمّسهم يردوا في الكومنتات"}
+  - {w: 2, name: "عامية مصرية خفيفة الدم", desc: "عامية مصرية بخفة دم وتعليق ساخر لطيف، من غير إساءة لأي لاعب أو نادي أو جمهور"}
+  - {w: 2, name: "عنوان صادم ثم التفاصيل", desc: "سطر أول جذاب يشد الانتباه (من غير تضليل)، وبعده التفاصيل الحقيقية للخبر"}
