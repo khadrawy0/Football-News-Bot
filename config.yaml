@@ -15,8 +15,6 @@ sources:
   - {name: BBC Sport, url: "https://feeds.bbci.co.uk/sport/football/rss.xml", weight: 5, region: intl, attach_link: true}
   - {name: Sky Sports, url: "https://www.skysports.com/rss/12040", weight: 5, region: intl, attach_link: true}
   - {name: The Guardian, url: "https://www.theguardian.com/football/rss", weight: 5, region: intl, attach_link: true}
-  - {name: ESPN, url: "https://www.espn.com/espn/rss/soccer/news", weight: 4, region: intl, attach_link: true}
-  - {name: Goal, url: "https://www.goal.com/feeds/en/news", weight: 4, region: intl, attach_link: true}
   - {name: Football Italia, url: "https://football-italia.net/feed/", weight: 3, region: intl, attach_link: true}
 
   # ---------- International (Google News aggregation, English) ----------
@@ -27,6 +25,10 @@ sources:
   - {name: GNews - Bundesliga, url: "https://news.google.com/rss/search?q=Bundesliga+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false}
   - {name: GNews - Transfers, url: "https://news.google.com/rss/search?q=football+transfer+official+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false}
   - {name: GNews - Salah, url: "https://news.google.com/rss/search?q=Mohamed+Salah+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Goal, url: "https://news.google.com/rss/search?q=site:goal.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - ESPN FC, url: "https://news.google.com/rss/search?q=site:espn.com+soccer+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Marca, url: "https://news.google.com/rss/search?q=site:marca.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Fabrizio Romano, url: "https://news.google.com/rss/search?q=Fabrizio+Romano+here+we+go+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
   - {name: GNews - World Cup, url: "https://news.google.com/rss/search?q=World+Cup+2026+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
 
   # ---------- Egyptian / Arabic (Google News, Arabic) ----------
