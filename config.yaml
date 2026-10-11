@@ -1,6 +1,6 @@
 settings:
   daily_cap: 60                  # max posts per Cairo day
-  max_posts_per_run: 3           # posts per hourly run
+  max_posts_per_run: 1           # posts per hourly run
   max_age_hours: 12              # ignore news older than this
   quiet_hours_cairo: [1, 7]      # no posting from 01:00 to 06:59 Cairo time
   delay_between_posts_sec: [20, 60]
