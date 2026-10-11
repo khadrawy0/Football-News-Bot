@@ -78,6 +78,13 @@ settings:
     - Al Jazeera
     - بي بي سي
     - CNN
+    - يلاكورة
+    - The New York Times
+    - UEFA.com
+    - OneFootball
+    - Yahoo
+    - الشرق الأوسط
+    - بطولات
 
 # weight: higher = more trusted/important. region: intl | eg
 # attach_link: false for Google News redirect links (Facebook previews them badly)

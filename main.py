@@ -116,7 +116,7 @@ def fetch_source(src):
         source_label = src["name"]
         if src.get("gnews"):
             pub = (e.get("source") or {}).get("title")
-            title = re.sub(r"\s+-\s+[^-]+$", "", title)
+            title = re.sub(r"\s+[-–—|]\s+[^-–—|]+$", "", title)
             source_label = pub or src["name"].replace("GNews - ", "")
             if TRUSTED and not is_trusted(source_label):
                 DROPPED[source_label] += 1
@@ -125,7 +125,7 @@ def fetch_source(src):
         else:
             summary = clean(e.get("summary", ""))[:400]
         link = e.get("link", "")
-        if not title or not link:
+        if len(title) < 15 or not link:  # empty/garbled headlines waste a slot
             continue
         if any(p.search(title) for p in SKIP_RE):  # live blogs, streaming/TV listings
             continue
@@ -224,6 +224,7 @@ def build_prompt(items):
         "- ممنوع إضافة أي حكم أو وصف غير مذكور في المصدر، مثل «أداء لافتًا» أو «تألق» أو «ضربة موجعة» أو «هيكتب التاريخ». "
         "لو المتاح عنوان فقط، فاكتفِ بمعلومات العنوان وصغها بحماس بدون أي إضافة.\n"
         "- لا تتوقع ولا تعلّق بمبالغة على مباراة لم تنتهِ. الأسلوب الساخر أو الحماسي يخص الصياغة فقط، ولا يضيف وقائع ولا يسخر من شخص.\n"
+        "- لا تصف فوزًا بأنه «مستحق» أو «كبير»، ولا مباراة بأنها «كلاسيكو» أو «قمة» أو «تاريخية» أو «لا تُنسى»، إلا لو المصدر قال ذلك صراحة.\n"
         "- لو الخبر شائعة أو غير مؤكد، صغه بحذر (بحسب تقارير / يتردد أن) أو ضع skip=true.\n"
         "- ضع skip=true لو الخبر ليس عن كرة القدم، أو ضعيف جدًا، أو تافه.\n"
         "- الطول من سطرين إلى خمسة أسطر. إيموجي من 1 إلى 3 بذوق.\n"
