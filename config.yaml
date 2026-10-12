@@ -1,6 +1,6 @@
 settings:
   daily_cap: 60                  # max posts per Cairo day
-  max_posts_per_run: 1           # posts per run (runs every 10 min)
+  max_posts_per_run: 3           # posts per hourly run
   max_age_hours: 12              # ignore news older than this
   quiet_hours_cairo: [1, 7]      # no posting from 01:00 to 06:59 Cairo time
   delay_between_posts_sec: [20, 60]
@@ -94,13 +94,15 @@ settings:
     - أهل مصر
     - Premier League
 
-# Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only)
+# Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
   enabled: true
-  no_image_policy: skip              # skip = don't publish a story when no suitable photo is found; text = publish text only
+  no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
+  archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)
   allow_attribution_licenses: true   # CC BY / CC BY-SA photos need a one-line photo credit; false = only public domain / CC0 (very few photos)
   vision_check: true                 # Gemini checks the shirt colours/crest and photo quality (it never identifies anyone by face)
   vision_candidates: 3
+  max_specs: 3                       # how many image subjects (player / match / team / stadium / competition) to try per story
   min_width: 900
 
 # weight: higher = more trusted/important. region: intl | eg

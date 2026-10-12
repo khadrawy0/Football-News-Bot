@@ -28,6 +28,7 @@ import requests
 import yaml
 
 import articles
+import card
 import images
 
 ROOT = Path(__file__).resolve().parent
@@ -257,15 +258,18 @@ def build_prompt(items, recent=()):
         "- لو خبران أو أكثر يتناولان نفس الحدث، اكتب منشورًا لواحد فقط وضع skip=true للباقي.\n"
         "- ابدأ بجملة قوية تشد القارئ، ونوّع في الافتتاحيات. إيموجي من 0 إلى 2 بذوق.\n"
         "- لا إساءة لأي لاعب أو نادٍ أو جمهور أو دولة.\n\n"
-        "حقل image (يُستخدم للبحث عن صورة مناسبة للخبر):\n"
-        '- person: اللاعب أو المدرب الذي يدور حوله الخبر بالاسم الإنجليزي كما في ويكيبيديا (مثل "Mohamed Salah"). '
-        "null لو لا يوجد شخص رئيسي واحد.\n"
-        '- team: النادي أو المنتخب الذي يجب أن يرتدي قميصه في الصورة ليناسب سياق الخبر (مثل "Liverpool" أو '
-        '"Inter Miami" أو "Egypt national football team"). null لو غير واضح.\n'
-        '- venue: اسم الملعب بالإنجليزية فقط لو الخبر عن مباراة في ملعب محدد مذكور في المقال أو ملعب صاحب الأرض '
-        "ولا يوجد شخص رئيسي. وإلا null.\n\n"
-        'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "...", '
-        '"image": {"person": null, "team": null, "venue": null}}\n\n'
+        "حقل images: قائمة من 0 إلى 4 مواضيع للصورة، مرتبة من الأنسب إلى الأقل. كل عنصر واحد من هذه الأنواع "
+        "(الأسماء بالإنجليزية كما في ويكيبيديا):\n"
+        '- {"kind":"person","person":"Mohamed Salah","team":"Liverpool"}: لاعب أو مدرب يدور حوله الخبر، و team هو النادي '
+        "أو المنتخب الذي يرتدي قميصه في سياق الخبر (قد يكون مختلفًا عن ناديه الحالي).\n"
+        '- {"kind":"match","team":"Liverpool","opponent":"Manchester City"}: لخبر مباراة بين فريقين محددين.\n'
+        '- {"kind":"team","team":"Al Ahly SC"}: لخبر عن نادٍ أو منتخب بعينه.\n'
+        '- {"kind":"venue","venue":"Anfield"}: ملعب محدد مذكور في المقال أو ملعب صاحب الأرض.\n'
+        '- {"kind":"competition","name":"UEFA Champions League"}: لخبر عن بطولة أو مسابقة.\n'
+        "اترك القائمة فارغة لو الخبر إداري أو عام ولا يرتبط بشخص أو فريق أو ملعب (قرار اتحاد، تعديل لائحة، "
+        "جدول مواعيد...).\n"
+        "حقل card_title: عنوان قصير جذاب غير مضلل (حتى 70 حرفًا) بالفصحى يلخص الخبر، يُكتب على بطاقة الصورة.\n\n"
+        'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "...", "card_title": "...", "images": []}\n\n'
         "الأخبار:\n\n" + "\n\n".join(blocks) + recent_block
     )
 
@@ -391,6 +395,42 @@ def valid_text(t):
     )
 
 
+def as_specs(res):
+    specs = res.get("images")
+    if specs is None and isinstance(res.get("image"), dict):  # old format
+        specs = [res["image"]]
+    return [x for x in (specs if isinstance(specs, list) else []) if isinstance(x, dict)]
+
+
+def headline_for_card(res, text):
+    t = re.sub(r"\s+", " ", str(res.get("card_title") or "")).strip()
+    if len(t) < 8:
+        first = re.split(r"(?<=[.!؟?])\s", text.strip())[0]
+        t = first
+    if len(t) > 90:
+        t = t[:90].rsplit(" ", 1)[0] + "…"
+    return t
+
+
+def photo_credit_line(img):
+    if img.get("kind") == "card":
+        return ""
+    label = "صورة أرشيفية" if IMG.get("archive_label", True) else ""
+    core = img.get("credit_core", "")
+    if not label and not core:
+        return ""
+    return "📷 " + (f"{label} — {core}" if label and core else label or core)
+
+
+def save_preview(img, idx):
+    out = ROOT / "out"
+    out.mkdir(exist_ok=True)
+    ext = {"image/png": "png", "image/webp": "webp"}.get(img["mime"], "jpg")
+    path = out / f"{idx:02d}-{img.get('kind', 'img')}.{ext}"
+    path.write_bytes(img["bytes"])
+    return path
+
+
 def fill_articles(pool, st, dry):
     """Attach the full article text to each candidate; drop those we can't read."""
     mc = S.get("min_article_chars", 350)
@@ -407,22 +447,39 @@ def fill_articles(pool, st, dry):
     return ok
 
 
+def parse_image_line(line):
+    """'Person|Team' | 'match:A|B' | 'team:X' | 'venue:X' | 'competition:X'"""
+    low = line.lower()
+    if low.startswith("match:"):
+        a, _, b = line.split(":", 1)[1].partition("|")
+        return {"kind": "match", "team": a.strip(), "opponent": b.strip()}
+    if low.startswith("team:"):
+        return {"kind": "team", "team": line.split(":", 1)[1].strip()}
+    if low.startswith("venue:"):
+        return {"kind": "venue", "venue": line.split(":", 1)[1].strip()}
+    if low.startswith("competition:"):
+        return {"kind": "competition", "name": line.split(":", 1)[1].strip()}
+    person, _, team = line.partition("|")
+    return {"kind": "person", "person": person.strip(), "team": team.strip() or None}
+
+
 def check_images():
-    """--check-images: print the photo chosen for each 'Person|Team' (or 'venue:Name') line. Posts nothing."""
+    """--check-images: print the photo chosen for each line of IMAGE_QUERIES and save it to out/. Posts nothing."""
     vf = vision_call if os.environ.get("GEMINI_API_KEY") else None
     lines = [l.strip() for l in os.environ.get("IMAGE_QUERIES", "").splitlines() if l.strip()]
-    for line in lines:
-        if line.lower().startswith("venue:"):
-            spec = {"venue": line.split(":", 1)[1].strip()}
-        else:
-            person, _, team = line.partition("|")
-            spec = {"person": person.strip(), "team": team.strip() or None}
+    for i, line in enumerate(lines, 1):
+        spec = parse_image_line(line)
         print("=" * 60, f"\n{spec}")
         img = images.find_image(spec, [], IMG, vision_fn=vf, verbose=True)
         if img:
-            print(f"  RESULT: {img['page']}\n  license: {img['license']}\n  credit line: {img['credit'] or '(none needed)'}")
+            path = save_preview(img, i)
+            print(f"  RESULT: {img['page']}\n  license: {img['license']}\n  caption line: {photo_credit_line(img) or '(none)'}\n  saved: {path}")
         else:
             print("  RESULT: no suitable photo found")
+    # headline-card preview
+    sample = os.environ.get("CARD_SAMPLE", "اتحاد الكرة يعلن تعديل لائحة الدوري: 20 فريقًا في موسم 2027/2028")
+    p = save_preview({"bytes": card.make_card(sample), "mime": "image/jpeg", "kind": "card"}, 99)
+    print(f"\ncard sample saved: {p}")
 
 
 def main():
@@ -490,16 +547,28 @@ def main():
             print(f"skipped (text invalid after cleanup): {it['title'][:70]}")
             continue
         img = None
-        if IMG.get("enabled", True):
+        if os.environ.get("CARDS_ONLY") == "1" or IMG.get("cards_only"):
+            img = {"bytes": card.make_card(headline_for_card(res, text)), "mime": "image/jpeg", "title": "card",
+                   "page": "(headline card)", "license": "", "credit_core": "", "kind": "card"}
+        elif IMG.get("enabled", True):
             vf = vision_call if IMG.get("vision_check", True) else None
-            img = images.find_image(res.get("image") or {}, st["recent_images"], IMG, vision_fn=vf)
-            if img is None and IMG.get("no_image_policy", "skip") == "skip":
-                print(f"skipped (no suitable photo): {it['title'][:70]}  image={res.get('image')}")
-                continue
-        caption = text + (f"\n\n{img['credit']}" if img and img["credit"] else "")
+            img = images.find_for_story(as_specs(res), st["recent_images"], IMG, vision_fn=vf)
+            if img is None:
+                policy = IMG.get("no_image_policy", "card")
+                if policy == "card":
+                    img = {"bytes": card.make_card(headline_for_card(res, text)), "mime": "image/jpeg", "title": "card",
+                           "page": "(headline card)", "license": "", "credit_core": "", "kind": "card"}
+                elif policy == "skip":
+                    print(f"skipped (no suitable photo): {it['title'][:70]}  images={as_specs(res)}")
+                    continue
+        credit = photo_credit_line(img) if img else ""
+        caption = text + (f"\n\n{credit}" if credit else "")
         if dry:
             print("-" * 60, f"\n[{it['style']['name']}] {it['title']}\n{caption}")
-            print(f"photo: {img['page'] if img else '-'}  ({img['license'] if img else ''})")
+            if img:
+                print(f"image: {img.get('kind')} | {img['page']} | {img['license']} | saved: {save_preview(img, published + 1)}")
+            else:
+                print("image: -")
             published += 1
             continue
         try:
@@ -515,7 +584,7 @@ def main():
         except Exception as e:
             print(f"::warning::{e}", file=sys.stderr)
             continue
-        if img:
+        if img and img.get("kind") != "card":
             st["recent_images"].append(img["title"])
         st["recent_titles"].append(sorted(it["tok"]))
         st["recent_headlines"].append(it["title"])

@@ -110,7 +110,7 @@ def search_files(query, limit=20, width=1280):
     return out
 
 
-def _score(c, name_tokens, team_tokens, recent, icfg):
+def _score(c, name_tokens, team_tokens, recent, icfg, group_penalty=True):
     """Return a score, or None when the file must not be used."""
     if c["mime"] not in ("image/jpeg", "image/png", "image/webp"):
         return None
@@ -134,7 +134,7 @@ def _score(c, name_tokens, team_tokens, recent, icfg):
     if y:
         score += max(0.0, min(1.5, (y - 2012) / 8))
     score += max(0, 20 - c["index"]) / 20
-    if GROUP.search(re.sub(r"^file:|\.\w+$", "", c["title"], flags=re.I)):
+    if group_penalty and GROUP.search(re.sub(r"^file:|\.\w+$", "", c["title"], flags=re.I)):
         score -= 1.5
     if c["title"] in recent:
         score -= 5
@@ -196,28 +196,43 @@ def vision_check(cands, team, vision_fn):
         return None
 
 
-def find_image(spec, recent, icfg, vision_fn=None, verbose=False):
-    """spec: {"person","team","venue"} -> dict(bytes, mime, title, page, license, credit) or None."""
-    person = (spec.get("person") or "").strip()
-    team = (spec.get("team") or "").strip()
-    venue = (spec.get("venue") or "").strip()
-    log = print if verbose else (lambda *a, **k: None)
-
-    if person:
-        name_tokens = _tokens(person, set())
-        team_tokens = _tokens(team, GENERIC_TEAM, 3) if team else []
+def _plan(spec):
+    """Turn a subject spec into (name_tokens, team_tokens, team, queries, strict_kit, group_penalty)."""
+    kind = spec.get("kind") or ("person" if spec.get("person") else "venue" if spec.get("venue") else None)
+    g = lambda k: (spec.get(k) or "").strip()
+    if kind == "person" and g("person"):
+        person, team = g("person"), g("team")
         queries = ([f'"{person}" {team} filetype:bitmap'] if team else []) + [
-            f'"{person}" filetype:bitmap',
-            f'incategory:"{person}" filetype:bitmap',
-        ]
-    elif venue:
-        name_tokens = _tokens(venue, GENERIC_VENUE)
-        team_tokens, team = [], ""
-        queries = [f'"{venue}" filetype:bitmap']
-    else:
+            f'"{person}" filetype:bitmap', f'incategory:"{person}" filetype:bitmap']
+        return kind, _tokens(person, set()), (_tokens(team, GENERIC_TEAM, 3) if team else []), team, queries, False, True
+    if kind == "match" and g("team") and g("opponent"):
+        a, b = g("team"), g("opponent")
+        toks = _tokens(a, GENERIC_TEAM, 3) + _tokens(b, GENERIC_TEAM, 3)
+        queries = [f'"{a}" "{b}" filetype:bitmap', f"{a} v {b} filetype:bitmap", f"{a} vs {b} filetype:bitmap"]
+        return kind, toks, [], "", queries, False, False
+    if kind == "team" and g("team"):
+        t = g("team")
+        toks = _tokens(t, GENERIC_TEAM, 3)
+        queries = [f'"{t}" players filetype:bitmap', f'"{t}" match filetype:bitmap', f'incategory:"{t}" filetype:bitmap']
+        return kind, toks, toks, t, queries, True, True   # strict: the kit must be confirmed by vision
+    if kind == "venue" and g("venue"):
+        return kind, _tokens(g("venue"), GENERIC_VENUE), [], "", [f'"{g("venue")}" filetype:bitmap'], False, True
+    if kind == "competition" and g("name"):
+        n = g("name")
+        return kind, _tokens(n, set(), 3), [], "", [f'"{n}" trophy filetype:bitmap', f'"{n}" filetype:bitmap'], False, True
+    return None
+
+
+def find_image(spec, recent, icfg, vision_fn=None, verbose=False):
+    """spec: {"kind": person|match|team|venue|competition, ...} -> dict(bytes, mime, title, page, license, credit_core, kind) or None."""
+    plan = _plan(spec)
+    log = print if verbose else (lambda *a, **k: None)
+    if not plan:
         return None
+    kind, name_tokens, team_tokens, team, queries, strict_kit, group_penalty = plan
     if not name_tokens:
         return None
+    log(f"  [{kind}] queries: {queries}")
 
     seen, cands = set(), []
     for q in queries:
@@ -225,7 +240,7 @@ def find_image(spec, recent, icfg, vision_fn=None, verbose=False):
             if c["title"] in seen:
                 continue
             seen.add(c["title"])
-            s = _score(c, name_tokens, team_tokens, recent, icfg)
+            s = _score(c, name_tokens, team_tokens, recent, icfg, group_penalty)
             if s is not None:
                 c["score"] = s
                 cands.append(c)
@@ -246,14 +261,14 @@ def find_image(spec, recent, icfg, vision_fn=None, verbose=False):
                 log(f"  vision: {c['title']} -> kit={v.get('kit')} usable={v.get('usable')}")
                 if v.get("usable") is False or v.get("kit") == "no":
                     continue
-                if v.get("kit") == "yes" or (v.get("kit") == "unclear" and c["team_match"]):
+                if v.get("kit") == "yes" or (v.get("kit") == "unclear" and c["team_match"] and not strict_kit):
                     chosen = c
                     break
-        else:  # vision unavailable: only trust metadata that names the team
+        elif not strict_kit:  # vision unavailable: only trust metadata that names the team
             chosen = next((c for c in top if c["team_match"]), None)
-    elif team_tokens:
+    elif team_tokens and not strict_kit:
         chosen = next((c for c in top if c["team_match"]), None)
-    else:
+    elif not team_tokens:
         chosen = top[0]
     if not chosen:
         return None
@@ -266,9 +281,19 @@ def find_image(spec, recent, icfg, vision_fn=None, verbose=False):
     except Exception as e:
         print(f"[images] download failed: {e}")
         return None
-    credit = ""
+    credit_core = ""
     if chosen["kind"] == "attr":
-        artist = (chosen["artist"] or "Wikimedia Commons")[:70]
-        credit = f"📷 {artist} / Wikimedia Commons / {chosen['license']}"
+        credit_core = f"{(chosen['artist'] or 'Wikimedia Commons')[:70]} / Wikimedia Commons / {chosen['license']}"
     return {"bytes": data, "mime": mime, "title": chosen["title"], "page": chosen["page"],
-            "license": chosen["license"], "credit": credit}
+            "license": chosen["license"], "credit_core": credit_core, "kind": kind}
+
+
+def find_for_story(specs, recent, icfg, vision_fn=None, verbose=False):
+    """Try the story's image subjects in priority order; first success wins."""
+    for spec in (specs or [])[: icfg.get("max_specs", 3)]:
+        if not isinstance(spec, dict):
+            continue
+        r = find_image(spec, recent, icfg, vision_fn, verbose)
+        if r:
+            return r
+    return None
