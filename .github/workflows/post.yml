@@ -2,7 +2,7 @@ name: post-football-news
 
 on:
   schedule:
-    - cron: "5 * * * *"   # every hour at :05 (the script itself skips quiet hours)
+    - cron: "*/10 * * * *"   
   workflow_dispatch:
     inputs:
       dry_run:
