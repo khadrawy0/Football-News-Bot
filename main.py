@@ -367,6 +367,9 @@ def main():
         try:
             post_id = publish(text, it["link"])
         except FacebookAuthError as e:
+            # token/permission problem, not the story's fault: keep it available for the next run
+            burned = set(it["all_ids"])
+            st["seen"] = [x for x in st["seen"] if x not in burned]
             save_state(st)
             print(f"::error::{e}")
             sys.exit(1)
