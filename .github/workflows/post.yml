@@ -2,7 +2,7 @@ name: post-football-news
 
 on:
   schedule:
-    - cron: "5 * * * *"   # every hour at :05 (the script itself skips quiet hours)
+    - cron: "*/10 * * * *"   # every 10 minutes = 6 runs per hour (the script itself skips quiet hours)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -66,6 +66,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.check_images }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           IMAGE_QUERIES: ${{ inputs.image_queries }}
         run: python main.py --check-images
 
@@ -73,6 +74,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.check_feeds || inputs.check_token || inputs.check_images)) }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '1' || '0' }}
