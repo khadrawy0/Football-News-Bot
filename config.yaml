@@ -96,6 +96,7 @@ settings:
 
 # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
+  cards_only: true                  # true = every post gets a headline card (6 designs, never the same one twice in a row) and photos are never searched
   enabled: true
   no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
   archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)

@@ -548,8 +548,13 @@ def main():
             continue
         img = None
         if os.environ.get("CARDS_ONLY") == "1" or IMG.get("cards_only"):
-            img = {"bytes": card.make_card(headline_for_card(res, text)), "mime": "image/jpeg", "title": "card",
-                   "page": "(headline card)", "license": "", "credit_core": "", "kind": "card"}
+            recent = st.setdefault("recent_cards", [])
+            pool_styles = [n for n in card.STYLE_NAMES if n not in recent[-2:]] or card.STYLE_NAMES
+            cstyle = random.choice(pool_styles)
+            recent.append(cstyle)
+            del recent[:-6]
+            img = {"bytes": card.make_card(headline_for_card(res, text), style=cstyle), "mime": "image/jpeg",
+                   "title": "card", "page": f"(headline card: {cstyle})", "license": "", "credit_core": "", "kind": "card"}
         elif IMG.get("enabled", True):
             vf = vision_call if IMG.get("vision_check", True) else None
             img = images.find_for_story(as_specs(res), st["recent_images"], IMG, vision_fn=vf)
