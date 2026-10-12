@@ -2,7 +2,7 @@ name: post-football-news
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes (the script itself skips quiet hours and the daily cap)
+    - cron: "5 * * * *"   # every hour at :05 (the script itself skips quiet hours)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -17,14 +17,18 @@ on:
         description: "Only check whose Facebook token this is (no posting)"
         type: boolean
         default: false
+      cards_only:
+        description: "Use headline cards only (no photo search) for this run"
+        type: boolean
+        default: false
       check_images:
         description: "Only test photo search for the names below (no posting)"
         type: boolean
         default: false
       image_queries:
-        description: "One per line: Person|Team   or   venue:Stadium"
+        description: "One per line: Person|Team  or  match:A|B  or  team:X  or  venue:X  or  competition:X"
         type: string
-        default: "Mohamed Salah|Liverpool\nLionel Messi|Inter Miami\nCristiano Ronaldo|Al Nassr\nvenue:Anfield"
+        default: "Mohamed Salah|Liverpool\nLionel Messi|Inter Miami\nCristiano Ronaldo|Al Nassr\nmatch:Liverpool|Manchester City\nteam:Al Ahly SC\nvenue:Anfield\ncompetition:UEFA Champions League"
 
 concurrency:
   group: poster
@@ -38,9 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -72,24 +76,22 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '1' || '0' }}
+          CARDS_ONLY: ${{ (github.event_name == 'workflow_dispatch' && inputs.cards_only) && '1' || '0' }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: python main.py
 
       - name: Save state
         if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_feeds || inputs.check_token || inputs.check_images)) }}
         run: |
-          # state.json may not exist yet (quiet hours / nothing new / first run): nothing to save then
-          if [ ! -f state/state.json ]; then
-            echo "no state/state.json to save"
-            exit 0
-          fi
           git config user.name "news-bot"
           git config user.email "news-bot@users.noreply.github.com"
-          git add -f state/state.json
-          if git diff --cached --quiet; then
-            echo "state unchanged"
-            exit 0
-          fi
-          git commit -m "chore: update bot state"
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
-          git push
+          git add state/state.json
+          git diff --cached --quiet || (git commit -m "chore: update bot state" && git push)
+
+      - name: Upload preview images
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_images) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-images
+          path: out/
+          if-no-files-found: ignore
