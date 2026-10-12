@@ -307,6 +307,34 @@ def publish(text, link):
 
 
 # -------------------------------------------------------------------- main
+def diagnose_token():
+    """Say whose token FB_PAGE_TOKEN is, without printing it."""
+    pid = os.environ.get("FB_PAGE_ID", "").strip()
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/{S['graph_version']}/me",
+            params={"fields": "id,name", "access_token": os.environ["FB_PAGE_TOKEN"].strip()},
+            timeout=20,
+        )
+        j = r.json()
+    except Exception as e:
+        print(f"[token-check] could not query Facebook: {e}")
+        return
+    if "error" in j:
+        err = j["error"]
+        print(f"[token-check] token rejected: code={err.get('code')} {err.get('message')}")
+        return
+    print(f"[token-check] FB_PAGE_TOKEN belongs to: {j.get('name')} (id={j.get('id')})")
+    print(f"[token-check] FB_PAGE_ID secret is:     {pid}")
+    if j.get("id") == pid:
+        print("[token-check] OK: this is a token for the right page.")
+    else:
+        print(
+            "[token-check] PROBLEM: the token is NOT the page's token. If the name above is a person, "
+            "this is a User token: take the page's own access_token from me/accounts instead."
+        )
+
+
 def valid_text(t):
     return isinstance(t, str) and 20 <= len(t) <= 1500 and re.search(r"[؀-ۿ]", t)
 
@@ -314,9 +342,12 @@ def valid_text(t):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--check-token", action="store_true")
     args = ap.parse_args()
     if args.check:
         return check_feeds()
+    if args.check_token:
+        return diagnose_token()
 
     dry = os.environ.get("DRY_RUN") == "1"
     force = os.environ.get("FORCE") == "1"
@@ -372,6 +403,7 @@ def main():
             st["seen"] = [x for x in st["seen"] if x not in burned]
             save_state(st)
             print(f"::error::{e}")
+            diagnose_token()
             sys.exit(1)
         except Exception as e:
             print(f"::warning::{e}", file=sys.stderr)
