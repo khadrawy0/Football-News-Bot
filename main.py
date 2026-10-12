@@ -27,6 +27,9 @@ import feedparser
 import requests
 import yaml
 
+import articles
+import images
+
 ROOT = Path(__file__).resolve().parent
 STATE_PATH = ROOT / "state" / "state.json"
 CAIRO = ZoneInfo("Africa/Cairo")
@@ -35,6 +38,7 @@ CFG = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
 S = CFG["settings"]
 DROPPED = Counter()
 SKIP_RE = [re.compile(p) for p in S.get("skip_title_patterns", [])]
+IMG = CFG.get("images", {})
 
 
 # ----------------------------------------------------------------- helpers
@@ -86,6 +90,7 @@ def load_state():
     st.setdefault("seen", [])
     st.setdefault("recent_titles", [])
     st.setdefault("recent_headlines", [])
+    st.setdefault("recent_images", [])
     st.setdefault("posts", {})
     return st
 
@@ -94,6 +99,7 @@ def save_state(st):
     st["seen"] = st["seen"][-5000:]
     st["recent_titles"] = st["recent_titles"][-300:]
     st["recent_headlines"] = st["recent_headlines"][-30:]
+    st["recent_images"] = st["recent_images"][-40:]
     st["posts"] = {k: st["posts"][k] for k in sorted(st["posts"])[-7:]}
     STATE_PATH.parent.mkdir(exist_ok=True)
     STATE_PATH.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
@@ -136,7 +142,7 @@ def fetch_source(src):
                 "id": hashlib.sha1((link or title).encode()).hexdigest()[:16],
                 "title": title,
                 "summary": summary,
-                "link": link if src.get("attach_link") else "",
+                "url": link,
                 "source": source_label,
                 "weight": src["weight"],
                 "region": src["region"],
@@ -226,46 +232,56 @@ def build_prompt(items, recent=()):
     for it in items:
         st = it["style"]
         blocks.append(
-            f'id: {it["id"]}\nsource: {it["source"]}\nheadline: {it["title"]}\n'
-            f'details: {it["summary"] or "(headline only)"}\n'
-            f'style: {st["name"]} — {st["desc"]}'
+            f'id: {it["id"]}\nheadline: {it["title"]}\n'
+            f'style: {st["name"]} — {st["desc"]}\n'
+            f'article:\n{(it.get("article") or "")[:5000]}'
         )
     return (
         "أنت محرر محتوى محترف لصفحة فيسبوك كبيرة عن كرة القدم، جمهورها مصري وعربي.\n"
-        "اكتب منشورًا واحدًا لكل خبر من الأخبار التالية، بالأسلوب المحدد له.\n\n"
-        "القواعد:\n"
-        "- اكتب بكلماتك أنت، ولا تنسخ عبارات من المصدر. المصدر قد يكون بالإنجليزية، والمنشور دائمًا بالعربية.\n"
-        "- اكتب بالعربية الفصحى المبسطة الرسمية فقط. ممنوع العامية المصرية أو أي لهجة أخرى، حتى في الأسئلة والتعليقات القصيرة.\n"
-        "- استخدم فقط المعلومات الموجودة في العنوان والتفاصيل. لا تخترع أرقامًا أو تصريحات أو نتائج.\n"
-        "- ممنوع إضافة أي حكم أو وصف غير مذكور في المصدر، مثل «أداء لافتًا» أو «تألق» أو «ضربة موجعة» أو «هيكتب التاريخ». "
-        "لو المتاح عنوان فقط، فاكتفِ بمعلومات العنوان وصغها بحماس بدون أي إضافة.\n"
-        "- لا تتوقع ولا تعلّق بمبالغة على مباراة لم تنتهِ. الأسلوب الساخر أو الحماسي يخص الصياغة فقط، ولا يضيف وقائع ولا يسخر من شخص.\n"
-        "- لا تصف فوزًا بأنه «مستحق» أو «كبير»، ولا مباراة بأنها «كلاسيكو» أو «قمة» أو «تاريخية» أو «لا تُنسى»، إلا لو المصدر قال ذلك صراحة.\n"
-        "- لو خبران أو أكثر في القائمة يتناولان نفس الحدث (مثل نفس نتيجة المباراة)، اكتب منشورًا لواحد فقط وضع skip=true للباقي.\n"
-        "- لا تكتب «الكل بيتكلم» أو «الجميع يرى» أو ما شابه إلا لو المصدر قال ذلك. راجع الإملاء والنحو (مثل «ثلاث نقاط» وليس «ثلاثة نقطة»).\n"
-        "- لو الخبر شائعة أو غير مؤكد، صغه بحذر (بحسب تقارير / يتردد أن) أو ضع skip=true.\n"
-        "- ضع skip=true لو الخبر ليس عن كرة القدم، أو ضعيف جدًا، أو تافه.\n"
-        "- الطول من سطرين إلى خمسة أسطر. إيموجي من 1 إلى 3 بذوق.\n"
-        "- قسّم المنشور بأسطر فارغة (\\n\\n): سطر افتتاحي، ثم الخبر، ثم سؤال أو تعليق قصير اختياري، "
-        "ثم سطر منفصل أخير للهاشتاجات (من 2 إلى 4).\n"
-        "- ابدأ بجملة قوية تشد القارئ، ونوّع في الافتتاحيات بين المنشورات.\n"
-        "- لا تذكر المصدر في النص (سيُضاف تلقائيًا). لا روابط في النص.\n"
+        "اكتب منشورًا واحدًا لكل خبر من الأخبار التالية، بالأسلوب المحدد له. تحت كل خبر نص المقال المصدر.\n\n"
+        "قواعد المحتوى:\n"
+        "- المنشور هو الخبر كاملًا: غطِّ كل المعلومات الأساسية (من؟ ماذا؟ متى؟ أين؟ الأرقام والنتائج والتصريحات المهمة "
+        "والخلفية الضرورية) بحيث لا يحتاج القارئ إلى فتح المصدر. الطول من 4 إلى 9 جمل، موزعة على فقرتين أو ثلاث "
+        "بأسطر فارغة بينها (\\n\\n). لا تحذف معلومة جوهرية.\n"
+        "- استخدم فقط المعلومات الموجودة في نص المقال. لا تخترع أرقامًا أو تصريحات أو نتائج أو خلفيات من عندك.\n"
+        "- اكتب بكلماتك أنت، ولا تنسخ جملًا من المقال. يجوز اقتباس عبارة قصيرة جدًا بين علامتي تنصيص إن كانت جوهرية.\n"
+        "- المصدر قد يكون بالإنجليزية، والمنشور دائمًا بالعربية الفصحى المبسطة الرسمية. ممنوع العامية المصرية أو أي لهجة أخرى.\n"
+        "- ممنوع الهاشتاجات والروابط. ولا تذكر اسم الموقع أو الصحيفة أو الوكالة التي نشرت الخبر ولا تكتب «بحسب موقع كذا». "
+        "أما لو نسب المقال كلامًا أو خبرًا إلى لاعب أو مدرب أو نادٍ أو جهة رسمية فاذكر ذلك لأنه جزء من الخبر.\n"
+        "- ممنوع إضافة أي حكم أو وصف غير مذكور في المقال، مثل «أداء لافتًا» أو «تألق» أو «ضربة موجعة» أو «سيكتب التاريخ». "
+        "ولا تصف فوزًا بأنه «مستحق» أو «كبير»، ولا مباراة بأنها «كلاسيكو» أو «قمة» أو «تاريخية»، إلا لو قال المقال ذلك صراحة.\n"
+        "- لا تتوقع نتيجة مباراة لم تنتهِ. الحماس والأسلوب يخصان الصياغة فقط ولا يضيفان وقائع ولا يسخران من شخص.\n"
+        "- لا تكتب «الكل بيتكلم» أو «الجميع يرى» إلا لو قال المقال ذلك. راجع الإملاء والنحو (مثل «ثلاث نقاط»).\n"
+        "- لو الخبر شائعة أو غير مؤكد، صغه بحذر (ذكرت تقارير / يتردد أن) أو ضع skip=true.\n"
+        "- ضع skip=true لو الخبر ليس عن كرة القدم، أو ضعيف جدًا، أو تافه، أو نص المقال ناقص أو غير واضح.\n"
+        "- لو خبران أو أكثر يتناولان نفس الحدث، اكتب منشورًا لواحد فقط وضع skip=true للباقي.\n"
+        "- ابدأ بجملة قوية تشد القارئ، ونوّع في الافتتاحيات. إيموجي من 0 إلى 2 بذوق.\n"
         "- لا إساءة لأي لاعب أو نادٍ أو جمهور أو دولة.\n\n"
-        'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "..."}\n\n'
+        "حقل image (يُستخدم للبحث عن صورة مناسبة للخبر):\n"
+        '- person: اللاعب أو المدرب الذي يدور حوله الخبر بالاسم الإنجليزي كما في ويكيبيديا (مثل "Mohamed Salah"). '
+        "null لو لا يوجد شخص رئيسي واحد.\n"
+        '- team: النادي أو المنتخب الذي يجب أن يرتدي قميصه في الصورة ليناسب سياق الخبر (مثل "Liverpool" أو '
+        '"Inter Miami" أو "Egypt national football team"). null لو غير واضح.\n'
+        '- venue: اسم الملعب بالإنجليزية فقط لو الخبر عن مباراة في ملعب محدد مذكور في المقال أو ملعب صاحب الأرض '
+        "ولا يوجد شخص رئيسي. وإلا null.\n\n"
+        'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "...", '
+        '"image": {"person": null, "team": null, "venue": null}}\n\n'
         "الأخبار:\n\n" + "\n\n".join(blocks) + recent_block
     )
 
 
-def call_gemini(prompt, model):
+def call_gemini(parts, model, temperature=1.0):
+    if isinstance(parts, str):
+        parts = [{"text": parts}]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 1.0, "responseMimeType": "application/json"},
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": temperature, "responseMimeType": "application/json"},
     }
     headers = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
     last = None
     for attempt in range(3):
-        r = requests.post(url, headers=headers, json=body, timeout=90)
+        r = requests.post(url, headers=headers, json=body, timeout=120)
         if r.status_code in (429, 500, 503):
             last = f"{r.status_code} {r.text[:200]}"
             time.sleep(10 * (attempt + 1))
@@ -275,6 +291,13 @@ def call_gemini(prompt, model):
         text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
         return json.loads(text)
     raise RuntimeError(f"Gemini failed on {model}: {last}")
+
+
+def vision_call(parts):
+    try:
+        return call_gemini(parts, S["gemini_model"], 0.0)
+    except Exception:
+        return call_gemini(parts, S["gemini_fallback_model"], 0.0)
 
 
 def write_posts(items, recent=()):
@@ -291,19 +314,33 @@ class FacebookAuthError(Exception):
     pass
 
 
-def publish(text, link):
-    url = f"https://graph.facebook.com/{S['graph_version']}/{os.environ['FB_PAGE_ID']}/feed"
-    data = {"message": text, "access_token": os.environ["FB_PAGE_TOKEN"]}
-    if link:
-        data["link"] = link
-    r = requests.post(url, data=data, timeout=30)
+def _fb_check(r):
     if r.status_code != 200:
         err = (r.json().get("error") if r.headers.get("content-type", "").startswith("application/json") else {}) or {}
         msg = f"FB error {r.status_code}: code={err.get('code')} {err.get('message')}"
         if err.get("code") in (190, 102, 200, 10):
             raise FacebookAuthError(msg)
         raise RuntimeError(msg)
-    return r.json().get("id")
+    j = r.json()
+    return j.get("post_id") or j.get("id")
+
+
+def publish(text):
+    url = f"https://graph.facebook.com/{S['graph_version']}/{os.environ['FB_PAGE_ID']}/feed"
+    r = requests.post(url, data={"message": text, "access_token": os.environ["FB_PAGE_TOKEN"]}, timeout=30)
+    return _fb_check(r)
+
+
+def publish_photo(caption, img_bytes, mime):
+    url = f"https://graph.facebook.com/{S['graph_version']}/{os.environ['FB_PAGE_ID']}/photos"
+    ext = {"image/png": "png", "image/webp": "webp"}.get(mime, "jpg")
+    r = requests.post(
+        url,
+        data={"caption": caption, "access_token": os.environ["FB_PAGE_TOKEN"]},
+        files={"source": (f"photo.{ext}", img_bytes, mime)},
+        timeout=90,
+    )
+    return _fb_check(r)
 
 
 # -------------------------------------------------------------------- main
@@ -335,19 +372,71 @@ def diagnose_token():
         )
 
 
+def sanitize(text):
+    """Safety net: the post must never contain links, hashtags or a source line."""
+    t = re.sub(r"https?://\S+", "", text or "")
+    t = re.sub(r"(?m)^\s*(?:[#＃]\S+\s*)+$", "", t)
+    t = re.sub(r"[#＃]\w+", "", t)
+    t = re.sub(r"(?m)^.*(?:المصدر|المصادر)\s*:.*$", "", t)
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
 def valid_text(t):
-    return isinstance(t, str) and 20 <= len(t) <= 1500 and re.search(r"[؀-ۿ]", t)
+    return (
+        isinstance(t, str)
+        and S.get("min_post_chars", 200) <= len(t) <= 3000
+        and bool(re.search(r"[؀-ۿ]", t))
+    )
+
+
+def fill_articles(pool, st, dry):
+    """Attach the full article text to each candidate; drop those we can't read."""
+    mc = S.get("min_article_chars", 350)
+    with cf.ThreadPoolExecutor(max_workers=4) as ex:
+        texts = list(ex.map(lambda it: articles.article_text(it["url"], mc), pool))
+    ok = []
+    for it, txt in zip(pool, texts):
+        if txt:
+            it["article"] = txt
+            ok.append(it)
+        elif not dry:
+            st["seen"].extend(it["all_ids"])  # unreadable (paywall/blocked): don't retry forever
+    print(f"articles: {len(ok)}/{len(pool)} candidates had readable full text")
+    return ok
+
+
+def check_images():
+    """--check-images: print the photo chosen for each 'Person|Team' (or 'venue:Name') line. Posts nothing."""
+    vf = vision_call if os.environ.get("GEMINI_API_KEY") else None
+    lines = [l.strip() for l in os.environ.get("IMAGE_QUERIES", "").splitlines() if l.strip()]
+    for line in lines:
+        if line.lower().startswith("venue:"):
+            spec = {"venue": line.split(":", 1)[1].strip()}
+        else:
+            person, _, team = line.partition("|")
+            spec = {"person": person.strip(), "team": team.strip() or None}
+        print("=" * 60, f"\n{spec}")
+        img = images.find_image(spec, [], IMG, vision_fn=vf, verbose=True)
+        if img:
+            print(f"  RESULT: {img['page']}\n  license: {img['license']}\n  credit line: {img['credit'] or '(none needed)'}")
+        else:
+            print("  RESULT: no suitable photo found")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--check-token", action="store_true")
+    ap.add_argument("--check-images", action="store_true")
     args = ap.parse_args()
     if args.check:
         return check_feeds()
     if args.check_token:
         return diagnose_token()
+    if args.check_images:
+        return check_images()
 
     dry = os.environ.get("DRY_RUN") == "1"
     force = os.environ.get("FORCE") == "1"
@@ -374,7 +463,13 @@ def main():
         print("nothing new")
         return
 
-    chosen = select(ranked, n + 3)  # spares in case Gemini skips some or finds duplicates
+    pool = select(ranked, S.get("candidate_pool", 12))
+    chosen = fill_articles(pool, st, dry)[: n + 3]  # spares in case Gemini skips some / no photo is found
+    if not chosen:
+        print("no candidate with readable full text")
+        if not dry:
+            save_state(st)
+        return
     for it, stl in zip(chosen, pick_styles(len(chosen))):
         it["style"] = stl
     results = {r.get("id"): r for r in write_posts(chosen, st["recent_headlines"][-25:]) if isinstance(r, dict)}
@@ -390,13 +485,25 @@ def main():
         if res.get("skip") or not valid_text(res.get("text")):
             print(f"skipped: {it['title'][:70]}")
             continue
-        text = res["text"].strip() + f"\n\n📰 المصدر: {it['source']}"
+        text = sanitize(res["text"])
+        if not valid_text(text):
+            print(f"skipped (text invalid after cleanup): {it['title'][:70]}")
+            continue
+        img = None
+        if IMG.get("enabled", True):
+            vf = vision_call if IMG.get("vision_check", True) else None
+            img = images.find_image(res.get("image") or {}, st["recent_images"], IMG, vision_fn=vf)
+            if img is None and IMG.get("no_image_policy", "skip") == "skip":
+                print(f"skipped (no suitable photo): {it['title'][:70]}  image={res.get('image')}")
+                continue
+        caption = text + (f"\n\n{img['credit']}" if img and img["credit"] else "")
         if dry:
-            print("-" * 60, f"\n[{it['style']['name']}] {it['title']}\n{text}\nlink: {it['link'] or '-'}")
+            print("-" * 60, f"\n[{it['style']['name']}] {it['title']}\n{caption}")
+            print(f"photo: {img['page'] if img else '-'}  ({img['license'] if img else ''})")
             published += 1
             continue
         try:
-            post_id = publish(text, it["link"])
+            post_id = publish_photo(caption, img["bytes"], img["mime"]) if img else publish(caption)
         except FacebookAuthError as e:
             # token/permission problem, not the story's fault: keep it available for the next run
             burned = set(it["all_ids"])
@@ -408,6 +515,8 @@ def main():
         except Exception as e:
             print(f"::warning::{e}", file=sys.stderr)
             continue
+        if img:
+            st["recent_images"].append(img["title"])
         st["recent_titles"].append(sorted(it["tok"]))
         st["recent_headlines"].append(it["title"])
         st["posts"][today] = st["posts"].get(today, 0) + 1

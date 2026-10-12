@@ -8,6 +8,10 @@ settings:
   gemini_fallback_model: gemini-2.5-flash-lite
   graph_version: v23.0           # check developers.facebook.com for the current version
 
+  candidate_pool: 12             # stories whose full article we try to fetch each run
+  min_article_chars: 350         # skip stories whose article text is shorter (paywall / blocked)
+  min_post_chars: 200            # a post must be at least this long (it is the full news)
+
   # Titles matching any regex are dropped (live blogs, streaming/TV listings)
   skip_title_patterns:
     - '(?i)(^|[–\-|:])\s*live\b'
@@ -90,6 +94,15 @@ settings:
     - أهل مصر
     - Premier League
 
+# Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only)
+images:
+  enabled: true
+  no_image_policy: skip              # skip = don't publish a story when no suitable photo is found; text = publish text only
+  allow_attribution_licenses: true   # CC BY / CC BY-SA photos need a one-line photo credit; false = only public domain / CC0 (very few photos)
+  vision_check: true                 # Gemini checks the shirt colours/crest and photo quality (it never identifies anyone by face)
+  vision_candidates: 3
+  min_width: 900
+
 # weight: higher = more trusted/important. region: intl | eg
 # attach_link: false for Google News redirect links (Facebook previews them badly)
 sources:
@@ -123,10 +136,10 @@ sources:
   - {name: GNews - اليوم السابع رياضة, url: "https://news.google.com/rss/search?q=site:youm7.com+%D9%83%D8%B1%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   - {name: GNews - كورة العالمية, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D8%A5%D9%86%D8%AC%D9%84%D9%8A%D8%B2%D9%8A+%D8%A7%D9%84%D8%A5%D8%B3%D8%A8%D8%A7%D9%86%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
 
-# Writing styles (all in formal Modern Standard Arabic); one is assigned per post (w = how often)
+# Writing styles (all formal Modern Standard Arabic, always the FULL news); one per post (w = how often)
 styles:
-  - {w: 3, name: "رسمي إخباري", desc: "نبرة نشرة أخبار رصينة بالفصحى المبسطة، جملة افتتاحية قوية ومباشرة"}
-  - {w: 3, name: "حماسي بالفصحى", desc: "فصحى مبسطة بنبرة حماسية وإيقاع سريع كأنه معلق رياضي، دون أي كلمة عامية"}
-  - {w: 3, name: "خبر ثم سؤال للجمهور", desc: "الخبر في سطرين بالفصحى، ثم سؤال ذكي موجّه للجمهور لتشجيع التعليقات"}
-  - {w: 2, name: "موجز تحليلي", desc: "الخبر بنبرة رصينة، ثم دلالته أو سياقه بشرط أن يكون مذكورًا في المصدر نفسه"}
-  - {w: 2, name: "عنوان جذاب ثم التفاصيل", desc: "سطر أول جذاب غير مضلل يشد الانتباه، ثم التفاصيل الحقيقية للخبر بالفصحى"}
+  - {w: 3, name: "رسمي إخباري", desc: "نبرة نشرة أخبار رصينة بالفصحى المبسطة، جملة افتتاحية قوية ومباشرة ثم الخبر كاملًا"}
+  - {w: 3, name: "حماسي بالفصحى", desc: "فصحى مبسطة بنبرة حماسية وإيقاع سريع كأنه معلق رياضي، دون أي كلمة عامية، والخبر كامل"}
+  - {w: 2, name: "الخبر كاملًا ثم سؤال", desc: "الخبر كاملًا بالفصحى، وفي آخره سؤال ذكي موجّه للجمهور في سطر مستقل لتشجيع التعليقات"}
+  - {w: 2, name: "موجز تحليلي", desc: "الخبر كاملًا بنبرة رصينة، ثم سياقه أو دلالته بشرط أن يكون مذكورًا في المقال نفسه"}
+  - {w: 2, name: "عنوان جذاب ثم التفاصيل", desc: "سطر أول جذاب غير مضلل يشد الانتباه، ثم تفاصيل الخبر كاملة بالفصحى"}
