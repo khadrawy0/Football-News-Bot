@@ -274,43 +274,79 @@ def build_prompt(items, recent=()):
     )
 
 
-def call_gemini(parts, model, temperature=1.0):
+class GeminiQuotaError(Exception):
+    """Every (key, model) pair is out of quota or unavailable right now."""
+
+
+_DEAD = set()  # (key_index, model) pairs that returned 429 / 403 during this run
+
+
+def gemini_keys():
+    raw = os.environ.get("GEMINI_API_KEYS") or (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")) or ""
+    keys = [k.strip() for k in re.split(r"[,\s]+", raw) if k.strip()]
+    if not keys:
+        raise RuntimeError("no Gemini key: set GEMINI_API_KEYS (comma/newline separated) or GEMINI_API_KEY")
+    return keys
+
+
+def gemini_models():
+    ms = S.get("gemini_models") or [S["gemini_model"], S.get("gemini_fallback_model")]
+    return [m for m in ms if m]
+
+
+def call_gemini(parts, model=None, temperature=1.0):
+    """Try every model, and for each model every key (quota is per project + model).
+    A pair that hits its quota is skipped for the rest of the run. Raises GeminiQuotaError when all are exhausted."""
     if isinstance(parts, str):
         parts = [{"text": parts}]
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     body = {
         "contents": [{"parts": parts}],
         "generationConfig": {"temperature": temperature, "responseMimeType": "application/json"},
     }
-    headers = {"x-goog-api-key": os.environ["GEMINI_API_KEY"], "Content-Type": "application/json"}
-    last = None
-    for attempt in range(3):
-        r = requests.post(url, headers=headers, json=body, timeout=120)
-        if r.status_code in (429, 500, 503):
-            last = f"{r.status_code} {r.text[:200]}"
-            time.sleep(10 * (attempt + 1))
-            continue
-        r.raise_for_status()
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
-        return json.loads(text)
-    raise RuntimeError(f"Gemini failed on {model}: {last}")
+    keys = gemini_keys()
+    models = [model] + [m for m in gemini_models() if m != model] if model else gemini_models()
+    last, quota_only = None, True
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        for ki, key in enumerate(keys):
+            if (ki, m) in _DEAD:
+                continue
+            headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
+            for attempt in range(2):
+                try:
+                    r = requests.post(url, headers=headers, json=body, timeout=120)
+                except requests.RequestException as e:
+                    last, quota_only = f"{m}: {e}", False
+                    time.sleep(3)
+                    continue
+                if r.status_code in (429, 403):  # quota / rate limit / key problem -> next key or model
+                    _DEAD.add((ki, m))
+                    last = f"key#{ki + 1} {m}: {r.status_code} {r.text[:120]}"
+                    print(f"[gemini] {last} -> trying next", file=sys.stderr)
+                    break
+                if r.status_code in (500, 503):
+                    last, quota_only = f"{m}: {r.status_code}", False
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                try:
+                    r.raise_for_status()
+                    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+                    return json.loads(text)
+                except (requests.HTTPError, KeyError, IndexError, ValueError) as e:
+                    last, quota_only = f"{m}: {type(e).__name__} {str(e)[:100]}", False
+                    break
+    if quota_only:
+        raise GeminiQuotaError(last or "no usable key/model")
+    raise RuntimeError(f"Gemini failed: {last}")
 
 
 def vision_call(parts):
-    try:
-        return call_gemini(parts, S["gemini_model"], 0.0)
-    except Exception:
-        return call_gemini(parts, S["gemini_fallback_model"], 0.0)
+    return call_gemini(parts, None, 0.0)
 
 
 def write_posts(items, recent=()):
-    prompt = build_prompt(items, recent)
-    try:
-        return call_gemini(prompt, S["gemini_model"])
-    except Exception as e:
-        print(f"[gemini] primary failed ({e}); trying fallback", file=sys.stderr)
-        return call_gemini(prompt, S["gemini_fallback_model"])
+    return call_gemini(build_prompt(items, recent), None)
 
 
 # ---------------------------------------------------------------- facebook
@@ -465,7 +501,7 @@ def parse_image_line(line):
 
 def check_images():
     """--check-images: print the photo chosen for each line of IMAGE_QUERIES and save it to out/. Posts nothing."""
-    vf = vision_call if os.environ.get("GEMINI_API_KEY") else None
+    vf = vision_call if (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")) else None
     lines = [l.strip() for l in os.environ.get("IMAGE_QUERIES", "").splitlines() if l.strip()]
     for i, line in enumerate(lines, 1):
         spec = parse_image_line(line)
@@ -521,7 +557,7 @@ def main():
         return
 
     pool = select(ranked, S.get("candidate_pool", 12))
-    chosen = fill_articles(pool, st, dry)[: n + 3]  # spares in case Gemini skips some / no photo is found
+    chosen = fill_articles(pool, st, dry)[: n + 2]  # spares in case Gemini skips some / no photo is found
     if not chosen:
         print("no candidate with readable full text")
         if not dry:
@@ -529,7 +565,15 @@ def main():
         return
     for it, stl in zip(chosen, pick_styles(len(chosen))):
         it["style"] = stl
-    results = {r.get("id"): r for r in write_posts(chosen, st["recent_headlines"][-25:]) if isinstance(r, dict)}
+    try:
+        written = write_posts(chosen, st["recent_headlines"][-25:])
+    except GeminiQuotaError as e:
+        # nothing was marked as seen, so these stories are tried again in the next run (10 minutes later)
+        print(f"::warning::Gemini quota exhausted on all keys/models ({e}); will retry next run")
+        if not dry:
+            save_state(st)
+        return
+    results = {r.get("id"): r for r in written if isinstance(r, dict)}
 
     published = 0
     for it in chosen:
