@@ -17,6 +17,14 @@ on:
         description: "Only check whose Facebook token this is (no posting)"
         type: boolean
         default: false
+      check_images:
+        description: "Only test photo search for the names below (no posting)"
+        type: boolean
+        default: false
+      image_queries:
+        description: "One per line: Person|Team   or   venue:Stadium"
+        type: string
+        default: "Mohamed Salah|Liverpool\nLionel Messi|Inter Miami\nCristiano Ronaldo|Al Nassr\nvenue:Anfield"
 
 concurrency:
   group: poster
@@ -50,8 +58,15 @@ jobs:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
         run: python main.py --check-token
 
+      - name: Check photos
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.check_images }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          IMAGE_QUERIES: ${{ inputs.image_queries }}
+        run: python main.py --check-images
+
       - name: Generate and post
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.check_feeds || inputs.check_token)) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.check_feeds || inputs.check_token || inputs.check_images)) }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
@@ -61,7 +76,7 @@ jobs:
         run: python main.py
 
       - name: Save state
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_feeds || inputs.check_token)) }}
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_feeds || inputs.check_token || inputs.check_images)) }}
         run: |
           git config user.name "news-bot"
           git config user.email "news-bot@users.noreply.github.com"
