@@ -2,7 +2,7 @@ settings:
   daily_cap: 60                  # max posts per Cairo day
   max_posts_per_run: 1           # one new story per run (runs happen every 10 minutes)
   max_age_hours: 12              # ignore news older than this
-  quiet_hours_cairo: [1, 7]      # no posting from 01:00 to 06:59 Cairo time
+  quiet_hours_cairo: [0, 9]      # no posting from 00:00 to 08:59 Cairo time (keep the same window in the cron-job.org schedule)
   delay_between_posts_sec: [20, 60]
   # models are tried in this order; for each model every key is tried. Quota is per Google project AND per model,
   # so more models + keys from different projects = more free daily calls.
