@@ -3,6 +3,8 @@ name: post-football-news
 on:
   schedule:
     - cron: "*/10 * * * *"   # every 10 minutes = 6 runs per hour (the script itself skips quiet hours)
+  repository_dispatch:            # external timer (cron-job.org etc.) -> behaves exactly like a scheduled run
+    types: [bot-tick]
   workflow_dispatch:
     inputs:
       dry_run:
