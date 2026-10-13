@@ -29,6 +29,7 @@ import yaml
 
 import articles
 import card
+import fixtures
 import images
 
 ROOT = Path(__file__).resolve().parent
@@ -172,6 +173,38 @@ def check_feeds():
 
 
 # -------------------------------------------------------------------- rank
+P = CFG.get("priority", {})
+
+
+def _fold(text):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", text)
+    return norm_ar("".join(c for c in t if not unicodedata.combining(c))).lower()
+
+
+def _star_patterns():
+    pats = []
+    for name in P.get("stars", []):
+        n = re.escape(_fold(name))
+        if re.search(r"[\u0600-\u06ff]", n):  # Arabic: allow one attached prefix (و ف ب ل ك ال ...)
+            rx = r"(?<![\u0600-\u06ff])(?:[وفبلك]|ال|وال|بال|لل)?" + n + r"(?![\u0600-\u06ff])"
+        else:
+            rx = r"(?<![a-z0-9])" + n + r"(?![a-z0-9])"
+        pats.append((name, re.compile(rx)))
+    return pats
+
+
+STARS = _star_patterns()
+
+
+def star_hit(text):
+    t = _fold(text)
+    for name, rx in STARS:
+        if rx.search(t):
+            return name
+    return None
+
+
 def rank(items, st):
     seen = set(st["seen"])
     recent = [set(t) for t in st["recent_titles"]]
@@ -194,6 +227,14 @@ def rank(items, st):
         age_h = (utcnow() - lead["published"]).total_seconds() / 3600
         n_src = len({x["source"] for x in m})
         lead["score"] = lead["weight"] + 1.5 * (n_src - 1) + max(0, 3 - age_h / 4) + random.random() * 0.8
+        blob = " ".join(x["title"] + " " + x.get("summary", "") for x in m)
+        star = star_hit(blob)
+        if star:
+            lead["score"] += P.get("star_boost", 6)
+            lead["star"] = star
+        if n_src >= P.get("buzz_sources", 3):  # many outlets cover it = the audience cares
+            lead["score"] += P.get("buzz_boost", 4)
+            lead["buzz"] = n_src
         lead["all_ids"] = [x["id"] for x in m]
         ranked.append(lead)
     return sorted(ranked, key=lambda x: -x["score"])
@@ -518,12 +559,106 @@ def check_images():
     print(f"\ncard sample saved: {p}")
 
 
+FX = CFG.get("fixtures", {})
+
+
+def build_fixtures_prompt(matches, day):
+    months = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+    days = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
+    date_ar = f"{days[day.weekday()]} {day.day} {months[day.month - 1]}"
+    return f"""أنت محرر صفحة رياضية عربية اسمها «شيكس». اكتب منشور فيسبوك واحدًا بعنوان مباريات اليوم ({date_ar}) اعتمادًا على القائمة أدناه فقط.
+
+القواعد:
+- فصحى مبسطة فقط، دون أي كلمة عامية.
+- ابدأ بسطر افتتاحي قصير ومشوّق، ثم اعرض المباريات مجمّعة حسب البطولة، وكل بطولة بعنوان مستقل بإيموجي واحد مناسب في أولها.
+- لكل مباراة سطر بالشكل: «الفريق الأول × الفريق الثاني — الساعة 9:00 م» (التوقيت بتوقيت القاهرة وهو معطى لك جاهزًا بنظام 24 ساعة؛ حوّله إلى نظام 12 ساعة بـ«ص» و«م»).
+- ترجم أسماء الأندية والمنتخبات والبطولات إلى العربية المتعارف عليها في الإعلام الرياضي.
+- لا تضف أي معلومة غير موجودة في القائمة: لا قنوات ناقلة، ولا نتائج، ولا توقعات، ولا تشكيلات، ولا إحصاءات، ولا أسماء لاعبين.
+- لا هاشتاجات ولا روابط ولا ذكر مصادر.
+- اختم بسطر قصير يدعو الجمهور إلى مشاركة توقعه في التعليقات.
+- أدرج كل المباريات الواردة ولا تحذف أيًا منها.
+
+قائمة المباريات (التوقيت بتوقيت القاهرة):
+{fixtures.as_prompt_block(matches)}
+
+أعد JSON فقط بهذا الشكل: {{"text": "...", "card_title": "مباريات اليوم - {date_ar}"}}"""
+
+
+def daily_fixtures_post(st, now_c, today, dry, force):
+    """One post per Cairo day, from FX['hour_cairo'] on, listing every match of the day."""
+    if st.get("fixtures_date") == today and not (force and dry):
+        return
+    if now_c.hour < FX.get("hour_cairo", 10) and not force:
+        return
+    if now_c.hour >= FX.get("give_up_hour_cairo", 17) and not force:
+        return  # too late to be a "today's matches" post
+    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 30), after=now_c)
+    if not matches:
+        print("[fixtures] no matches found for today (or the source is unreachable)")
+        if st.get("fixtures_tries", {}).get(today, 0) >= 3 or now_c.hour >= FX.get("give_up_hour_cairo", 17) - 1:
+            st["fixtures_date"] = today  # stop trying
+        else:
+            st.setdefault("fixtures_tries", {})[today] = st.get("fixtures_tries", {}).get(today, 0) + 1
+        if not dry:
+            save_state(st)
+        return
+    print(f"[fixtures] {len(matches)} match(es) today")
+    try:
+        res = call_gemini(build_fixtures_prompt(matches, now_c.date()), None, 0.7)
+    except GeminiQuotaError as e:
+        print(f"::warning::fixtures post postponed, Gemini quota exhausted ({e})")
+        return
+    except Exception as e:
+        print(f"::warning::fixtures post failed: {e}", file=sys.stderr)
+        return
+    if isinstance(res, list):
+        res = res[0] if res else {}
+    text = sanitize(res.get("text", ""))
+    if len(text) < 80:
+        print("[fixtures] model returned too little text; will retry next run")
+        return
+    title = (res.get("card_title") or "مباريات اليوم")[:80]
+    img = {"bytes": card.make_card(title, style="pitch"), "mime": "image/jpeg", "title": "card",
+           "page": "(fixtures card)", "license": "", "credit_core": "", "kind": "card"}
+    if dry:
+        print("-" * 60, f"\n[FIXTURES]\n{text}\nimage: fixtures card | saved: {save_preview(img, 90)}")
+        return
+    try:
+        post_id = publish_photo(text, img["bytes"], img["mime"])
+    except FacebookAuthError as e:
+        print(f"::error::{e}")
+        diagnose_token()
+        sys.exit(1)
+    except Exception as e:
+        print(f"::warning::fixtures publish failed: {e}", file=sys.stderr)
+        return
+    st["fixtures_date"] = today
+    st["posts"][today] = st["posts"].get(today, 0) + 1
+    print(f"posted fixtures {post_id}")
+    save_state(st)
+
+
+def check_fixtures():
+    now_c = dt.datetime.now(CAIRO)
+    ms = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 30), after=now_c)
+    print(f"{len(ms)} match(es) for {now_c.date()} (Cairo):")
+    print(fixtures.as_prompt_block(ms) or "(none)")
+    if ms and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")):
+        res = call_gemini(build_fixtures_prompt(ms, now_c.date()), None, 0.7)
+        res = res[0] if isinstance(res, list) and res else res
+        print("-" * 60, "\n" + sanitize(res.get("text", "")))
+        print("card saved:", save_preview({"bytes": card.make_card(res.get("card_title", "مباريات اليوم"), style="pitch"), "mime": "image/jpeg"}, 90))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--check-token", action="store_true")
     ap.add_argument("--check-images", action="store_true")
+    ap.add_argument("--check-fixtures", action="store_true")
     args = ap.parse_args()
+    if args.check_fixtures:
+        return check_fixtures()
     if args.check:
         return check_feeds()
     if args.check_token:
@@ -546,6 +681,9 @@ def main():
         print("daily cap reached - skipping")
         return
     n = S["max_posts_per_run"] if force else min(S["max_posts_per_run"], remaining)
+
+    if FX.get("enabled") and (force or not (lo <= now_c.hour < hi)):
+        daily_fixtures_post(st, now_c, today, dry, force)
 
     items = fetch_all()
     print(f"fetched {len(items)} fresh items from {len(CFG['sources'])} sources")

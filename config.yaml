@@ -97,6 +97,100 @@ settings:
     - أهل مصر
     - Premier League
 
+# Always-covered topics: stories that mention these names are pushed to the top of the queue,
+# and stories reported by many outlets at once ("buzz") are pushed up as well.
+priority:
+  star_boost: 6          # added to a story's score when it mentions a star below
+  buzz_sources: 3        # a story covered by at least this many different outlets...
+  buzz_boost: 4          # ...gets this bonus
+  stars:
+    - Cristiano Ronaldo
+    - Ronaldo
+    - كريستيانو رونالدو
+    - رونالدو
+    - Lionel Messi
+    - Messi
+    - ميسي
+    - ليونيل ميسي
+    - Mohamed Salah
+    - Salah
+    - محمد صلاح
+    - صلاح
+    - Mbappe
+    - مبابي
+    - Haaland
+    - هالاند
+    - Vinicius
+    - فينيسيوس
+    - Lamine Yamal
+    - Yamal
+    - يامال
+    - Bellingham
+    - بيلينجهام
+    - بيلنغهام
+    - Neymar
+    - نيمار
+    - Kane
+    - هاري كين
+    - Lewandowski
+    - ليفاندوفسكي
+    - De Bruyne
+    - دي بروين
+    - Omar Marmoush
+    - Marmoush
+    - عمر مرموش
+    - مرموش
+    - Mostafa Mohamed
+    - مصطفى محمد
+    - Mohamed Elneny
+    - Guardiola
+    - جوارديولا
+    - Mourinho
+    - مورينيو
+    - Ancelotti
+    - أنشيلوتي
+    - Klopp
+    - كلوب
+    - Zidane
+    - زيدان
+    - Xavi
+    - Hossam Hassan
+    - حسام حسن
+    - Infantino
+    - إنفانتينو
+
+# The daily "today's matches" post. Data: ESPN public scoreboard (unofficial; test with --check-fixtures).
+fixtures:
+  enabled: true
+  hour_cairo: 10              # first run at/after this hour posts it (runs are every 10 minutes)
+  give_up_hour_cairo: 17      # if no match data by then, skip the post for today
+  max_matches: 30
+  leagues:                    # order = display order; ESPN league codes (unknown codes are just skipped)
+    - {code: egy.1, name: "الدوري المصري الممتاز"}
+    - {code: uefa.champions, name: "دوري أبطال أوروبا"}
+    - {code: uefa.europa, name: "الدوري الأوروبي"}
+    - {code: uefa.europa.conf, name: "دوري المؤتمر الأوروبي"}
+    - {code: eng.1, name: "الدوري الإنجليزي الممتاز"}
+    - {code: esp.1, name: "الدوري الإسباني"}
+    - {code: ita.1, name: "الدوري الإيطالي"}
+    - {code: ger.1, name: "الدوري الألماني"}
+    - {code: fra.1, name: "الدوري الفرنسي"}
+    - {code: eng.league_cup, name: "كأس الرابطة الإنجليزية"}
+    - {code: eng.fa, name: "كأس الاتحاد الإنجليزي"}
+    - {code: esp.copa_del_rey, name: "كأس ملك إسبانيا"}
+    - {code: caf.champions, name: "دوري أبطال إفريقيا"}
+    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية"}
+    - {code: ksa.1, name: "دوري روشن السعودي"}
+    - {code: usa.1, name: "الدوري الأمريكي"}
+    - {code: fifa.world, name: "كأس العالم"}
+    - {code: fifa.worldq.uefa, name: "تصفيات كأس العالم - أوروبا"}
+    - {code: fifa.worldq.caf, name: "تصفيات كأس العالم - إفريقيا"}
+    - {code: uefa.nations, name: "دوري الأمم الأوروبية"}
+    - {code: fifa.friendly, name: "مباريات ودية دولية"}
+    - {code: por.1, name: "الدوري البرتغالي"}
+    - {code: ned.1, name: "الدوري الهولندي"}
+    - {code: tur.1, name: "الدوري التركي"}
+
 # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
   cards_only: true                  # true = every post gets a headline card (6 designs, never the same one twice in a row) and photos are never searched
@@ -141,6 +235,15 @@ sources:
   - {name: GNews - في الجول, url: "https://news.google.com/rss/search?q=site:filgoal.com+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   - {name: GNews - اليوم السابع رياضة, url: "https://news.google.com/rss/search?q=site:youm7.com+%D9%83%D8%B1%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   - {name: GNews - كورة العالمية, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D8%A5%D9%86%D8%AC%D9%84%D9%8A%D8%B2%D9%8A+%D8%A7%D9%84%D8%A5%D8%B3%D8%A8%D8%A7%D9%86%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
+  # ---------- Stars / big stories (Google News) ----------
+  - {name: GNews - Ronaldo, url: "https://news.google.com/rss/search?q=Cristiano+Ronaldo+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Messi, url: "https://news.google.com/rss/search?q=Lionel+Messi+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Mbappe Haaland, url: "https://news.google.com/rss/search?q=Mbappe+OR+Haaland+OR+Yamal+OR+Vinicius+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Marmoush, url: "https://news.google.com/rss/search?q=Omar+Marmoush+OR+Mostafa+Mohamed+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - Football breaking, url: "https://news.google.com/rss/search?q=football+breaking+news+OR+sacked+OR+injury+OR+official+when:6h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
+  - {name: GNews - رونالدو وميسي, url: "https://news.google.com/rss/search?q=%D8%B1%D9%88%D9%86%D8%A7%D9%84%D8%AF%D9%88+OR+%D9%85%D9%8A%D8%B3%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
+  - {name: GNews - عاجل كرة القدم, url: "https://news.google.com/rss/search?q=%D8%B9%D8%A7%D8%AC%D9%84+%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+when:6h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
+
 
 # Writing styles (all formal Modern Standard Arabic, always the FULL news); one per post (w = how often)
 styles:
