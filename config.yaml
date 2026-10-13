@@ -6,7 +6,7 @@ settings:
   delay_between_posts_sec: [20, 60]
   # models are tried in this order; for each model every key is tried. Quota is per Google project AND per model,
   # so more models + keys from different projects = more free daily calls.
-  gemini_models: [gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash]
+  gemini_models: [gemini-2.5-flash, gemini-2.5-flash-lite]
   gemini_model: gemini-2.5-flash
   gemini_fallback_model: gemini-2.5-flash-lite
   graph_version: v23.0           # check developers.facebook.com for the current version
@@ -100,9 +100,11 @@ settings:
 # Always-covered topics: stories that mention these names are pushed to the top of the queue,
 # and stories reported by many outlets at once ("buzz") are pushed up as well.
 priority:
-  star_boost: 6          # added to a story's score when it mentions a star below
+  star_boost: 1.5        # small nudge for a story that mentions a star below (not a takeover)
+  star_window: 6         # look at the last 6 posts...
+  star_max_in_window: 2  # ...and give no nudge when 2 of them were already star stories (keeps the page varied)
   buzz_sources: 3        # a story covered by at least this many different outlets...
-  buzz_boost: 4          # ...gets this bonus
+  buzz_boost: 2          # ...gets this bonus
   stars:
     - Cristiano Ronaldo
     - Ronaldo
@@ -159,37 +161,39 @@ priority:
     - Infantino
     - إنفانتينو
 
-# The daily "today's matches" post. Data: ESPN public scoreboard (unofficial; test with --check-fixtures).
+# The daily "today's matches" post: a short caption + a CARD listing the important matches with kick-off times.
+# Data: ESPN public scoreboard (unofficial; test with the check_fixtures run - it prints every match found and marks + selected / - dropped).
+# Per league:  teams = only matches involving these clubs (both: true = both sides must be listed)
+#              max = cap per league, featured = clubs that win a place when there are more matches than max
+#              (no teams/max = every match of that league)
 fixtures:
   enabled: true
   hour_cairo: 10              # first run at/after this hour posts it (runs are every 10 minutes)
   give_up_hour_cairo: 17      # if no match data by then, skip the post for today
-  max_matches: 30
-  leagues:                    # order = display order; ESPN league codes (unknown codes are just skipped)
-    - {code: egy.1, name: "الدوري المصري الممتاز"}
-    - {code: uefa.champions, name: "دوري أبطال أوروبا"}
-    - {code: uefa.europa, name: "الدوري الأوروبي"}
-    - {code: uefa.europa.conf, name: "دوري المؤتمر الأوروبي"}
-    - {code: eng.1, name: "الدوري الإنجليزي الممتاز"}
-    - {code: esp.1, name: "الدوري الإسباني"}
-    - {code: ita.1, name: "الدوري الإيطالي"}
-    - {code: ger.1, name: "الدوري الألماني"}
-    - {code: fra.1, name: "الدوري الفرنسي"}
-    - {code: eng.league_cup, name: "كأس الرابطة الإنجليزية"}
-    - {code: eng.fa, name: "كأس الاتحاد الإنجليزي"}
-    - {code: esp.copa_del_rey, name: "كأس ملك إسبانيا"}
-    - {code: caf.champions, name: "دوري أبطال إفريقيا"}
-    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية"}
-    - {code: ksa.1, name: "دوري روشن السعودي"}
-    - {code: usa.1, name: "الدوري الأمريكي"}
-    - {code: fifa.world, name: "كأس العالم"}
-    - {code: fifa.worldq.uefa, name: "تصفيات كأس العالم - أوروبا"}
-    - {code: fifa.worldq.caf, name: "تصفيات كأس العالم - إفريقيا"}
-    - {code: uefa.nations, name: "دوري الأمم الأوروبية"}
-    - {code: fifa.friendly, name: "مباريات ودية دولية"}
-    - {code: por.1, name: "الدوري البرتغالي"}
-    - {code: ned.1, name: "الدوري الهولندي"}
-    - {code: tur.1, name: "الدوري التركي"}
+  rows_per_card: 9            # matches per card; a busy day becomes 2-4 cards inside ONE post (album)
+  max_cards: 4
+  max_matches: 36             # hard cap on all matches of the day
+  leagues:                    # order = display order on the card
+    - {code: uefa.champions, name: "دوري أبطال أوروبا", max: 6, featured: [Real Madrid, Barcelona, Bayern, Manchester City, Liverpool, Arsenal, Paris Saint-Germain, Inter, Milan, Juventus, Atletico, Dortmund, Chelsea, Manchester United, Napoli]}
+    - {code: uefa.europa, name: "الدوري الأوروبي", max: 3, featured: [Manchester United, Tottenham, Roma, Atletico, Real Betis, Porto, Ajax, Lazio, Aston Villa]}
+    - {code: eng.1, name: "الدوري الإنجليزي الممتاز", max: 10}
+    - {code: esp.1, name: "الدوري الإسباني", teams: [Real Madrid, Barcelona, Atletico]}
+    - {code: ger.1, name: "الدوري الألماني", teams: [Bayern, Borussia Dortmund]}
+    - {code: fra.1, name: "الدوري الفرنسي", teams: [Paris Saint-Germain]}
+    - {code: ita.1, name: "الدوري الإيطالي", teams: [Inter, Milan, Juventus, Napoli, Atalanta, Roma]}   # top 6; delete names to make it top 4/5
+    - {code: egy.1, name: "الدوري المصري الممتاز", teams: [Al Ahly, Zamalek, Pyramids]}
+    - {code: ksa.1, name: "دوري روشن السعودي", teams: [Al Nassr, Al Hilal, Al Ittihad, Al Ahli]}
+    - {code: caf.champions, name: "دوري أبطال إفريقيا", max: 3, featured: [Al Ahly, Zamalek, Pyramids]}
+    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية", teams: [Al Ahly, Zamalek, Pyramids, Zamalek SC]}
+    - {code: eng.league_cup, name: "كأس الرابطة الإنجليزية", max: 3, featured: [Manchester United, Manchester City, Liverpool, Arsenal, Chelsea, Tottenham]}
+    - {code: eng.fa, name: "كأس الاتحاد الإنجليزي", max: 3, featured: [Manchester United, Manchester City, Liverpool, Arsenal, Chelsea, Tottenham]}
+    - {code: esp.copa_del_rey, name: "كأس ملك إسبانيا", teams: [Real Madrid, Barcelona, Atletico]}
+    - {code: usa.1, name: "الدوري الأمريكي", teams: [Inter Miami]}
+    - {code: fifa.world, name: "كأس العالم", max: 6}
+    - {code: uefa.nations, name: "دوري الأمم الأوروبية", max: 4, featured: [France, Spain, England, Germany, Portugal, Italy]}
+    - {code: fifa.worldq.caf, name: "تصفيات كأس العالم - إفريقيا", max: 4, featured: [Egypt, Morocco, Senegal, Algeria, Nigeria]}
+    - {code: fifa.worldq.uefa, name: "تصفيات كأس العالم - أوروبا", max: 4, featured: [France, Spain, England, Germany, Portugal, Italy]}
+    - {code: fifa.friendly, name: "مباريات ودية دولية", max: 4, featured: [Egypt, Brazil, Argentina, France, Spain, England, Portugal, Morocco]}
 
 # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
@@ -236,12 +240,7 @@ sources:
   - {name: GNews - اليوم السابع رياضة, url: "https://news.google.com/rss/search?q=site:youm7.com+%D9%83%D8%B1%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   - {name: GNews - كورة العالمية, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D8%A5%D9%86%D8%AC%D9%84%D9%8A%D8%B2%D9%8A+%D8%A7%D9%84%D8%A5%D8%B3%D8%A8%D8%A7%D9%86%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   # ---------- Stars / big stories (Google News) ----------
-  - {name: GNews - Ronaldo, url: "https://news.google.com/rss/search?q=Cristiano+Ronaldo+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
-  - {name: GNews - Messi, url: "https://news.google.com/rss/search?q=Lionel+Messi+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
-  - {name: GNews - Mbappe Haaland, url: "https://news.google.com/rss/search?q=Mbappe+OR+Haaland+OR+Yamal+OR+Vinicius+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
-  - {name: GNews - Marmoush, url: "https://news.google.com/rss/search?q=Omar+Marmoush+OR+Mostafa+Mohamed+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
   - {name: GNews - Football breaking, url: "https://news.google.com/rss/search?q=football+breaking+news+OR+sacked+OR+injury+OR+official+when:6h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
-  - {name: GNews - رونالدو وميسي, url: "https://news.google.com/rss/search?q=%D8%B1%D9%88%D9%86%D8%A7%D9%84%D8%AF%D9%88+OR+%D9%85%D9%8A%D8%B3%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
   - {name: GNews - عاجل كرة القدم, url: "https://news.google.com/rss/search?q=%D8%B9%D8%A7%D8%AC%D9%84+%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+when:6h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
 
 

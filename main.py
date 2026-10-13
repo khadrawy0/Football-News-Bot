@@ -230,8 +230,11 @@ def rank(items, st):
         blob = " ".join(x["title"] + " " + x.get("summary", "") for x in m)
         star = star_hit(blob)
         if star:
-            lead["score"] += P.get("star_boost", 6)
             lead["star"] = star
+            recent_stars = st.get("recent_stars", [])[-P.get("star_window", 6):]
+            # a small nudge only, and none when stars already fill the recent posts or this same star was just covered
+            if sum(1 for x in recent_stars if x) < P.get("star_max_in_window", 2) and star not in recent_stars[-3:]:
+                lead["score"] += P.get("star_boost", 1.5)
         if n_src >= P.get("buzz_sources", 3):  # many outlets cover it = the audience cares
             lead["score"] += P.get("buzz_boost", 4)
             lead["buzz"] = n_src
@@ -360,7 +363,7 @@ def call_gemini(parts, model=None, temperature=1.0):
                     last, quota_only = f"{m}: {e}", False
                     time.sleep(3)
                     continue
-                if r.status_code in (429, 403):  # quota / rate limit / key problem -> next key or model
+                if r.status_code in (429, 403, 404) or (r.status_code == 400 and "API key" in r.text):  # quota / key problem / retired model -> next
                     _DEAD.add((ki, m))
                     last = f"key#{ki + 1} {m}: {r.status_code} {r.text[:120]}"
                     print(f"[gemini] {last} -> trying next", file=sys.stderr)
@@ -422,6 +425,26 @@ def publish_photo(caption, img_bytes, mime):
         timeout=90,
     )
     return _fb_check(r)
+
+
+def publish_photos(caption, jpgs):
+    """One post with several photos: upload each unpublished, then attach them all to a single feed post."""
+    if len(jpgs) == 1:
+        return publish_photo(caption, jpgs[0], "image/jpeg")
+    base = f"https://graph.facebook.com/{S['graph_version']}/{os.environ['FB_PAGE_ID']}"
+    ids = []
+    for i, jpg in enumerate(jpgs):
+        r = requests.post(
+            f"{base}/photos",
+            data={"published": "false", "access_token": os.environ["FB_PAGE_TOKEN"]},
+            files={"source": (f"card{i + 1}.jpg", jpg, "image/jpeg")},
+            timeout=90,
+        )
+        ids.append(_fb_check(r))
+    data = {"message": caption, "access_token": os.environ["FB_PAGE_TOKEN"]}
+    for i, pid in enumerate(ids):
+        data[f"attached_media[{i}]"] = json.dumps({"media_fbid": pid})
+    return _fb_check(requests.post(f"{base}/feed", data=data, timeout=60))
 
 
 # -------------------------------------------------------------------- main
@@ -562,69 +585,86 @@ def check_images():
 FX = CFG.get("fixtures", {})
 
 
-def build_fixtures_prompt(matches, day):
+def _t12(k):
+    h = k.hour % 12 or 12
+    return f"{h}:{k.minute:02d} {'ص' if k.hour < 12 else 'م'}"
+
+
+def _date_ar(day):
     months = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
     days = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
-    date_ar = f"{days[day.weekday()]} {day.day} {months[day.month - 1]}"
-    return f"""أنت محرر صفحة رياضية عربية اسمها «شيكس». اكتب منشور فيسبوك واحدًا بعنوان مباريات اليوم ({date_ar}) اعتمادًا على القائمة أدناه فقط.
+    return f"{days[day.weekday()]} {day.day} {months[day.month - 1]}"
 
-القواعد:
-- فصحى مبسطة فقط، دون أي كلمة عامية.
-- ابدأ بسطر افتتاحي قصير ومشوّق، ثم اعرض المباريات مجمّعة حسب البطولة، وكل بطولة بعنوان مستقل بإيموجي واحد مناسب في أولها.
-- لكل مباراة سطر بالشكل: «الفريق الأول × الفريق الثاني — الساعة 9:00 م» (التوقيت بتوقيت القاهرة وهو معطى لك جاهزًا بنظام 24 ساعة؛ حوّله إلى نظام 12 ساعة بـ«ص» و«م»).
-- ترجم أسماء الأندية والمنتخبات والبطولات إلى العربية المتعارف عليها في الإعلام الرياضي.
-- لا تضف أي معلومة غير موجودة في القائمة: لا قنوات ناقلة، ولا نتائج، ولا توقعات، ولا تشكيلات، ولا إحصاءات، ولا أسماء لاعبين.
-- لا هاشتاجات ولا روابط ولا ذكر مصادر.
-- اختم بسطر قصير يدعو الجمهور إلى مشاركة توقعه في التعليقات.
-- أدرج كل المباريات الواردة ولا تحذف أيًا منها.
 
-قائمة المباريات (التوقيت بتوقيت القاهرة):
-{fixtures.as_prompt_block(matches)}
+def arabic_team_names(matches, st):
+    """English club/national-team names -> Arabic (cached in state so each name is translated once)."""
+    cache = st.setdefault("team_ar", {})
+    need = [n for n in fixtures.team_names(matches) if n not in cache]
+    if need:
+        prompt = (
+            "ترجم أسماء الأندية والمنتخبات الرياضية التالية إلى العربية كما تُكتب في وسائل الإعلام الرياضي العربية "
+            "(مثال: Real Madrid = ريال مدريد، Paris Saint-Germain = باريس سان جيرمان، Al Ahly = الأهلي). "
+            "أعد JSON فقط على شكل كائن مفاتيحه الأسماء الإنجليزية كما وردت وقيمه الأسماء العربية، دون أي شرح.\n\n"
+            + "\n".join(need)
+        )
+        res = call_gemini(prompt, None, 0.0)
+        if isinstance(res, list):
+            res = res[0] if res and isinstance(res[0], dict) else {}
+        for k, v in (res or {}).items():
+            if k in need and isinstance(v, str) and re.search(r"[\u0600-\u06ff]", v):
+                cache[k] = v.strip()
+    return cache
 
-أعد JSON فقط بهذا الشكل: {{"text": "...", "card_title": "مباريات اليوم - {date_ar}"}}"""
+
+def fixtures_caption(day):
+    return f"⚽ مباريات اليوم — {_date_ar(day)}"
+
+
+def fixtures_image(matches, st, day):
+    names = arabic_team_names(matches, st)
+    missing = [n for n in fixtures.team_names(matches) if n not in names]
+    if missing:
+        raise RuntimeError(f"no Arabic name for: {missing}")
+    groups = fixtures.group_for_card(matches, names, _t12)
+    pages = fixtures.split_pages(groups, FX.get("rows_per_card", 9), FX.get("max_cards", 4))
+    return [card.make_fixtures_card(_date_ar(day), g, part=(i + 1, len(pages)) if len(pages) > 1 else None)
+            for i, g in enumerate(pages)]
 
 
 def daily_fixtures_post(st, now_c, today, dry, force):
-    """One post per Cairo day, from FX['hour_cairo'] on, listing every match of the day."""
+    """One post per Cairo day, from FX['hour_cairo'] on: a short caption + a card listing the selected matches."""
     if st.get("fixtures_date") == today and not (force and dry):
         return
     if now_c.hour < FX.get("hour_cairo", 10) and not force:
         return
     if now_c.hour >= FX.get("give_up_hour_cairo", 17) and not force:
         return  # too late to be a "today's matches" post
-    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 30), after=now_c)
+    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=now_c)
     if not matches:
-        print("[fixtures] no matches found for today (or the source is unreachable)")
-        if st.get("fixtures_tries", {}).get(today, 0) >= 3 or now_c.hour >= FX.get("give_up_hour_cairo", 17) - 1:
-            st["fixtures_date"] = today  # stop trying
-        else:
-            st.setdefault("fixtures_tries", {})[today] = st.get("fixtures_tries", {}).get(today, 0) + 1
+        print("[fixtures] no important matches found for today (or the source is unreachable)")
+        tries = st.setdefault("fixtures_tries", {})
+        tries[today] = tries.get(today, 0) + 1
+        if tries[today] >= 3 or now_c.hour >= FX.get("give_up_hour_cairo", 17) - 1:
+            st["fixtures_date"] = today  # stop trying today
         if not dry:
             save_state(st)
         return
-    print(f"[fixtures] {len(matches)} match(es) today")
+    print(f"[fixtures] {len(matches)} match(es) selected")
     try:
-        res = call_gemini(build_fixtures_prompt(matches, now_c.date()), None, 0.7)
+        jpgs = fixtures_image(matches, st, now_c.date())
     except GeminiQuotaError as e:
         print(f"::warning::fixtures post postponed, Gemini quota exhausted ({e})")
         return
     except Exception as e:
-        print(f"::warning::fixtures post failed: {e}", file=sys.stderr)
+        print(f"::warning::fixtures card failed: {e}", file=sys.stderr)
         return
-    if isinstance(res, list):
-        res = res[0] if res else {}
-    text = sanitize(res.get("text", ""))
-    if len(text) < 80:
-        print("[fixtures] model returned too little text; will retry next run")
-        return
-    title = (res.get("card_title") or "مباريات اليوم")[:80]
-    img = {"bytes": card.make_card(title, style="pitch"), "mime": "image/jpeg", "title": "card",
-           "page": "(fixtures card)", "license": "", "credit_core": "", "kind": "card"}
+    text = fixtures_caption(now_c.date())
     if dry:
-        print("-" * 60, f"\n[FIXTURES]\n{text}\nimage: fixtures card | saved: {save_preview(img, 90)}")
+        saved = [save_preview({"bytes": j, "mime": "image/jpeg", "kind": "card"}, 90 + i) for i, j in enumerate(jpgs)]
+        print("-" * 60, f"\n[FIXTURES]\n{text}\n{len(jpgs)} card(s) | saved: {saved}")
         return
     try:
-        post_id = publish_photo(text, img["bytes"], img["mime"])
+        post_id = publish_photos(text, jpgs)
     except FacebookAuthError as e:
         print(f"::error::{e}")
         diagnose_token()
@@ -640,14 +680,14 @@ def daily_fixtures_post(st, now_c, today, dry, force):
 
 def check_fixtures():
     now_c = dt.datetime.now(CAIRO)
-    ms = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 30), after=now_c)
-    print(f"{len(ms)} match(es) for {now_c.date()} (Cairo):")
-    print(fixtures.as_prompt_block(ms) or "(none)")
+    ms = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=now_c)
+    print(f"\n{len(ms)} match(es) selected for {now_c.date()} (Cairo)  [+ selected / - dropped above]")
     if ms and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")):
-        res = call_gemini(build_fixtures_prompt(ms, now_c.date()), None, 0.7)
-        res = res[0] if isinstance(res, list) and res else res
-        print("-" * 60, "\n" + sanitize(res.get("text", "")))
-        print("card saved:", save_preview({"bytes": card.make_card(res.get("card_title", "مباريات اليوم"), style="pitch"), "mime": "image/jpeg"}, 90))
+        st = {}
+        jpgs = fixtures_image(ms, st, now_c.date())
+        print("caption:", fixtures_caption(now_c.date()))
+        print("arabic names:", st.get("team_ar"))
+        print(f"{len(jpgs)} card(s) saved:", [save_preview({"bytes": j, "mime": "image/jpeg"}, 90 + i) for i, j in enumerate(jpgs)])
 
 
 def main():
@@ -710,6 +750,9 @@ def main():
         print(f"::warning::Gemini quota exhausted on all keys/models ({e}); will retry next run")
         if not dry:
             save_state(st)
+        return
+    except Exception as e:  # never fail the whole run because the model call failed; stories stay unseen
+        print(f"::warning::Gemini call failed ({e}); will retry next run")
         return
     results = {r.get("id"): r for r in written if isinstance(r, dict)}
 
@@ -775,6 +818,8 @@ def main():
             st["recent_images"].append(img["title"])
         st["recent_titles"].append(sorted(it["tok"]))
         st["recent_headlines"].append(it["title"])
+        st.setdefault("recent_stars", []).append(it.get("star"))
+        del st["recent_stars"][:-12]
         st["posts"][today] = st["posts"].get(today, 0) + 1
         published += 1
         print(f"posted {post_id}: {it['title'][:70]}")

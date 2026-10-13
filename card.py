@@ -177,3 +177,99 @@ def make_card(title, brand="شيكس", sub="chex", style=None):
     out = io.BytesIO()
     img.convert("RGB").save(out, "JPEG", quality=90)
     return out.getvalue()
+
+
+def _vgradient(w, h, c1, c2):
+    small = Image.new("RGB", (1, 64))
+    px = small.load()
+    for y in range(64):
+        t = y / 63
+        px[0, y] = tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+    return small.resize((w, h), Image.BILINEAR)
+
+
+def make_fixtures_card(date_ar, groups, brand="شيكس", sub="chex", part=None):
+    """Tall card listing today's matches.
+    groups = [(competition_ar, [(home_ar, away_ar, "9:00 م"), ...]), ...]   -> JPEG bytes (1200 x dynamic height)."""
+    PAD = 70
+    head_h, comp_h, row_h, foot_h = 225, 80, 62, 150
+    n_rows = sum(len(ms) for _, ms in groups)
+    Hh = head_h + len(groups) * comp_h + n_rows * row_h + foot_h
+    img = _vgradient(W, Hh, (8, 70, 38), (12, 38, 28)).convert("RGBA")
+    o = Image.new("RGBA", (W, Hh), (0, 0, 0, 0))
+    od = ImageDraw.Draw(o)
+    for i in range(0, W, 150):  # mowing stripes
+        if (i // 150) % 2 == 0:
+            od.rectangle((i, 0, i + 150, Hh), fill=(255, 255, 255, 9))
+    od.ellipse((W // 2 - 300, Hh // 2 - 300, W // 2 + 300, Hh // 2 + 300), outline=(255, 255, 255, 22), width=8)
+    od.rectangle((W - 22, 0, W, Hh), fill=(255, 224, 102, 255))
+    img = Image.alpha_composite(img, o)
+    d = ImageDraw.Draw(img)
+    gold, white = (255, 224, 102), (255, 255, 255)
+    right = W - PAD - 20
+
+    # header
+    tf = _font(FONT_BOLD, 92)
+    t = _shape("مباريات اليوم")
+    d.text((right - tf.getlength(t), 38), t, font=tf, fill=white)
+    sf = _font(FONT_MED, 44)
+    t = _shape(date_ar)
+    d.text((right - sf.getlength(t), 150), t, font=sf, fill=gold)
+
+    # translucent bars/lines are drawn on a separate layer and composited (ImageDraw would overwrite, not blend)
+    lay = Image.new("RGBA", (W, Hh), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lay)
+    yy = head_h
+    for comp, matches in groups:
+        ld.rounded_rectangle((PAD, yy + 12, right, yy + comp_h - 12), radius=14, fill=(0, 0, 0, 95))
+        yy += comp_h
+        for _ in matches:
+            ld.line((PAD, yy + row_h - 4, right, yy + row_h - 4), fill=(255, 255, 255, 30), width=1)
+            yy += row_h
+    ld.line((PAD, Hh - foot_h + 20, right, Hh - foot_h + 20), fill=(255, 255, 255, 80), width=2)
+    img = Image.alpha_composite(img, lay)
+    d = ImageDraw.Draw(img)
+
+    if part:  # "1/3" badge on the left of the header when the day needs several cards
+        pf = _font(FONT_BOLD, 54)
+        badge = f"{part[0]}/{part[1]}"
+        bw = pf.getlength(badge)
+        d.rounded_rectangle((PAD, 70, PAD + bw + 50, 150), radius=18, fill=(255, 224, 102))
+        d.text((PAD + 25, 66), badge, font=pf, fill=(12, 38, 28))
+
+    y = head_h
+    for comp, matches in groups:
+        cf = _font(FONT_BOLD, 40)
+        t = _shape(comp)
+        d.text((right - 22 - cf.getlength(t), y + 5), t, font=cf, fill=gold)
+        y += comp_h
+        for home, away, tm in matches:
+            tfont = _font(FONT_BOLD, 36)
+            tt = _shape(tm)
+            d.text((PAD + 14, y + 8), tt, font=tfont, fill=gold)
+            avail = right - 22 - (PAD + 14 + tfont.getlength(tt) + 40)
+            size = 40
+            line = f"{home} × {away}"
+            while size > 24:
+                mf = _font(FONT_BOLD, size)
+                if mf.getlength(_shape(line)) <= avail:
+                    break
+                size -= 2
+            mf = _font(FONT_BOLD, size)
+            sh = _shape(line)
+            d.text((right - 22 - mf.getlength(sh), y + 6 + (40 - size) // 2), sh, font=mf, fill=white)
+            y += row_h
+
+    # footer
+    bf = _font(FONT_BOLD, 56)
+    sh = _shape(brand)
+    d.text((right - bf.getlength(sh), Hh - foot_h + 30), sh, font=bf, fill=gold)
+    if LOGO.exists():
+        logo = Image.open(LOGO).convert("RGBA")
+        logo.thumbnail((260, 80))
+        img.alpha_composite(logo, (PAD, Hh - foot_h + 38))
+    else:
+        d.text((PAD, Hh - foot_h + 40), sub.upper(), font=_font(FONT_MED, 40), fill=(255, 255, 255, 190))
+    out = io.BytesIO()
+    img.convert("RGB").save(out, "JPEG", quality=90)
+    return out.getvalue()
