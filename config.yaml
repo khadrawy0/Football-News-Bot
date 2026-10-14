@@ -169,23 +169,23 @@ priority:
 #              (no teams/max = every match of that league)
 fixtures:
   enabled: true
-  hour_cairo: 10              # first run at/after this hour posts it (runs are every 10 minutes)
+  hour_cairo: 10              # the post goes out at the first run at/after 10:00 Cairo (runs are every 10 minutes)
   give_up_hour_cairo: 17      # if no match data by then, skip the post for today
-  rows_per_card: 9            # matches per card; a busy day becomes 2-4 cards inside ONE post (album)
-  max_cards: 4
-  max_matches: 36             # hard cap on all matches of the day
+  rows_per_card: 9            # matches per card; a busy day becomes 2-3 cards inside ONE post (album)
+  max_cards: 3
+  max_matches: 27             # hard cap on all matches of the day (= 3 cards x 9 rows)
   leagues:                    # order = display order on the card
-    - {code: uefa.champions, name: "دوري أبطال أوروبا", max: 6, featured: [Real Madrid, Barcelona, Bayern, Manchester City, Liverpool, Arsenal, Paris Saint-Germain, Inter, Milan, Juventus, Atletico, Dortmund, Chelsea, Manchester United, Napoli]}
-    - {code: uefa.europa, name: "الدوري الأوروبي", max: 3, featured: [Manchester United, Tottenham, Roma, Atletico, Real Betis, Porto, Ajax, Lazio, Aston Villa]}
-    - {code: eng.1, name: "الدوري الإنجليزي الممتاز", max: 10}
+    - {code: uefa.champions, name: "دوري أبطال أوروبا", teams: [Real Madrid, Barcelona, Atletico, Bayern, Paris Saint-Germain, Inter, Milan, Juventus, Napoli, Manchester City, Liverpool, Arsenal, Chelsea, Manchester United, Tottenham, Newcastle, Aston Villa]}
+    - {code: eng.1, name: "الدوري الإنجليزي الممتاز"}   # every match
     - {code: esp.1, name: "الدوري الإسباني", teams: [Real Madrid, Barcelona, Atletico]}
-    - {code: ger.1, name: "الدوري الألماني", teams: [Bayern, Borussia Dortmund]}
+    - {code: ita.1, name: "الدوري الإيطالي", teams: [Inter, Milan, Juventus, Napoli]}   # top 4; add/remove names for top 3/5
+    - {code: ger.1, name: "الدوري الألماني", teams: [Bayern]}
     - {code: fra.1, name: "الدوري الفرنسي", teams: [Paris Saint-Germain]}
-    - {code: ita.1, name: "الدوري الإيطالي", teams: [Inter, Milan, Juventus, Napoli, Atalanta, Roma]}   # top 6; delete names to make it top 4/5
     - {code: egy.1, name: "الدوري المصري الممتاز", teams: [Al Ahly, Zamalek, Pyramids]}
-    - {code: ksa.1, name: "دوري روشن السعودي", teams: [Al Nassr, Al Hilal, Al Ittihad, Al Ahli]}
-    - {code: caf.champions, name: "دوري أبطال إفريقيا", max: 3, featured: [Al Ahly, Zamalek, Pyramids]}
-    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية", teams: [Al Ahly, Zamalek, Pyramids, Zamalek SC]}
+    - {code: ksa.1, name: "دوري روشن السعودي", teams: [Al Nassr, Al Hilal]}
+    - {code: caf.champions, name: "دوري أبطال إفريقيا", teams: [Al Ahly, Zamalek, Pyramids]}
+    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية", teams: [Al Ahly, Zamalek, Pyramids]}
+    - {code: uefa.europa, name: "الدوري الأوروبي", max: 3, featured: [Manchester United, Tottenham, Roma, Atletico, Real Betis, Porto, Ajax, Lazio, Aston Villa]}
     - {code: eng.league_cup, name: "كأس الرابطة الإنجليزية", max: 3, featured: [Manchester United, Manchester City, Liverpool, Arsenal, Chelsea, Tottenham]}
     - {code: eng.fa, name: "كأس الاتحاد الإنجليزي", max: 3, featured: [Manchester United, Manchester City, Liverpool, Arsenal, Chelsea, Tottenham]}
     - {code: esp.copa_del_rey, name: "كأس ملك إسبانيا", teams: [Real Madrid, Barcelona, Atletico]}

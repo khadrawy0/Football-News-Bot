@@ -684,17 +684,21 @@ def fixtures_image(matches, st, day):
             for i, g in enumerate(pages)]
 
 
-def daily_fixtures_post(st, now_c, today, dry, force):
-    """One post per Cairo day, from FX['hour_cairo'] on: a short caption + a card listing the selected matches."""
-    if st.get("fixtures_date") == today and not (force and dry):
+def daily_fixtures_post(st, now_c, today, dry, force, test=False):
+    """One post per Cairo day, from FX['hour_cairo'] on: a short caption + a card listing the selected matches.
+    test=True (FIXTURES_ONLY run): ignore the hour / already-posted checks and leave the daily state untouched,
+    so a manual test never blocks (or counts as) the real morning post."""
+    if not test and st.get("fixtures_date") == today and not (force and dry):
         return
     if now_c.hour < FX.get("hour_cairo", 10) and not force:
         return
     if now_c.hour >= FX.get("give_up_hour_cairo", 17) and not force:
         return  # too late to be a "today's matches" post
-    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=now_c)
+    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=None if test else now_c)
     if not matches:
         print("[fixtures] no important matches found for today (or the source is unreachable)")
+        if test:
+            return
         tries = st.setdefault("fixtures_tries", {})
         tries[today] = tries.get(today, 0) + 1
         if tries[today] >= 3 or now_c.hour >= FX.get("give_up_hour_cairo", 17) - 1:
@@ -725,9 +729,10 @@ def daily_fixtures_post(st, now_c, today, dry, force):
     except Exception as e:
         print(f"::warning::fixtures publish failed: {e}", file=sys.stderr)
         return
-    st["fixtures_date"] = today
-    st["posts"][today] = st["posts"].get(today, 0) + 1
     print(f"posted fixtures {post_id}")
+    if not test:
+        st["fixtures_date"] = today
+        st["posts"][today] = st["posts"].get(today, 0) + 1
     save_state(st)
 
 
@@ -767,6 +772,11 @@ def main():
     st = load_state()
     now_c = dt.datetime.now(CAIRO)
     today = now_c.strftime("%Y-%m-%d")
+
+    if os.environ.get("FIXTURES_ONLY") == "1":  # manual test of the daily matches post (see post.yml: post_fixtures)
+        print(f"[fixtures-test] dry_run={dry}: building today's matches post now (hour / quiet-hours / already-posted checks skipped)")
+        daily_fixtures_post(st, now_c, today, dry, True, test=True)
+        return
 
     lo, hi = S["quiet_hours_cairo"]
     if not force and lo <= now_c.hour < hi:

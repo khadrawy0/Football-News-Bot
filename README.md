@@ -22,6 +22,12 @@ Runs hourly on GitHub Actions, up to 3 posts per run, 60 per Cairo day, quiet ho
 2. Run workflow again with **dry_run** ticked → the log shows the posts it would publish. Tune the styles/prompt.
 3. Run with dry_run unticked for one real post, check it on the page. After that the hourly schedule takes over.
 
+## Testing the daily matches post
+
+Actions → post-football-news → Run workflow → tick **post_fixtures**:
+- with **dry_run** ticked (default): builds today's matches cards and uploads them as the `preview-images` artifact, nothing is published;
+- with **dry_run** unticked: really publishes the post to the page right now. It does not count as the day's morning post, so the scheduled 10:00 post still goes out normally.
+
 ## Tuning
 
 Everything lives in `config.yaml`: sources and weights, daily cap, posts per run, quiet hours, models, writing styles.
