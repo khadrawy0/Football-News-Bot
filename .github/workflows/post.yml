@@ -88,6 +88,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+          THESPORTSDB_KEY: ${{ secrets.THESPORTSDB_KEY }}
         run: python main.py --check-fixtures
 
       - name: Check photos
@@ -103,6 +105,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+          THESPORTSDB_KEY: ${{ secrets.THESPORTSDB_KEY }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
@@ -114,6 +118,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+          THESPORTSDB_KEY: ${{ secrets.THESPORTSDB_KEY }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '1' || '0' }}
