@@ -333,9 +333,62 @@ def gemini_keys():
     return keys
 
 
+_DISCOVERED = None
+_BAD = ("image", "tts", "live", "audio", "embedding", "robotics", "computer", "native", "exp", "vision", "learnlm", "gemma", "aqa", "imagen", "veo")
+
+
+def _discover(key):
+    """Ask the API which text models this key can actually call (names change/retire over time)."""
+    try:
+        r = requests.get("https://generativelanguage.googleapis.com/v1beta/models", params={"pageSize": 200},
+                         headers={"x-goog-api-key": key}, timeout=30)
+        r.raise_for_status()
+        out = []
+        for mo in r.json().get("models", []):
+            name = mo.get("name", "").split("/")[-1]
+            if "generateContent" not in mo.get("supportedGenerationMethods", []):
+                continue
+            if "flash" not in name or any(b in name for b in _BAD):
+                continue
+            out.append(name)
+        def ver(n):
+            v = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+            return float(v.group(1)) if v else 0.0
+        # newest generation first; within it plain flash before flash-lite; stable before preview
+        out.sort(key=lambda n: (-ver(n), "lite" in n, "preview" in n, n))
+        return out
+    except Exception as e:
+        print(f"[gemini] model discovery failed: {e}", file=sys.stderr)
+        return []
+
+
 def gemini_models():
-    ms = S.get("gemini_models") or [S["gemini_model"], S.get("gemini_fallback_model")]
-    return [m for m in ms if m]
+    """Configured models first, then whatever the API says is available (so a retired model never stops the bot)."""
+    global _DISCOVERED
+    ms = list(S.get("gemini_models") or [S.get("gemini_model"), S.get("gemini_fallback_model")])
+    if S.get("gemini_auto_discover", True):
+        if _DISCOVERED is None:
+            _DISCOVERED = _discover(gemini_keys()[0])[:4]
+            print(f"[gemini] discovered models: {_DISCOVERED}")
+        ms += _DISCOVERED
+    seen, out = set(), []
+    for x in ms:
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def check_gemini():
+    """Per key: which models are listed and whether a tiny call works (no keys are printed)."""
+    for i, key in enumerate(gemini_keys(), 1):
+        found = _discover(key)
+        print(f"key#{i}: models={found[:6]}")
+        for mo in (S.get("gemini_models") or []) + found[:3]:
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{mo}:generateContent",
+                              headers={"x-goog-api-key": key}, timeout=60,
+                              json={"contents": [{"parts": [{"text": "قل: تم"}]}]})
+            print(f"   {mo}: {r.status_code} {'OK' if r.status_code == 200 else r.text[:110].replace(chr(10), ' ')}")
 
 
 def call_gemini(parts, model=None, temperature=1.0):
@@ -696,7 +749,10 @@ def main():
     ap.add_argument("--check-token", action="store_true")
     ap.add_argument("--check-images", action="store_true")
     ap.add_argument("--check-fixtures", action="store_true")
+    ap.add_argument("--check-gemini", action="store_true")
     args = ap.parse_args()
+    if args.check_gemini:
+        return check_gemini()
     if args.check_fixtures:
         return check_fixtures()
     if args.check:
