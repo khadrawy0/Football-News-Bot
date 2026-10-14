@@ -22,6 +22,19 @@ Runs hourly on GitHub Actions, up to 3 posts per run, 60 per Cairo day, quiet ho
 2. Run workflow again with **dry_run** ticked → the log shows the posts it would publish. Tune the styles/prompt.
 3. Run with dry_run unticked for one real post, check it on the page. After that the hourly schedule takes over.
 
+## Match data sources (daily "today's matches" post)
+
+Several sources, tried in the order of `fixtures.sources` in `config.yaml`; for each league the first source that returns matches wins, so one blocked source never stops the post:
+
+| source | key | notes |
+|---|---|---|
+| `espn` | none | unofficial; sometimes answers 403 to GitHub's servers |
+| `sofascore` | none | unofficial; covers every league incl. Egypt, Saudi and CAF |
+| `footballdata` | secret `FOOTBALL_DATA_KEY` (free at football-data.org) | top-5 leagues + Champions League + World Cup; skipped when no key |
+| `thesportsdb` | built-in free test key (optional secret `THESPORTSDB_KEY`) | many leagues; smaller free-tier coverage |
+
+Run **check_fixtures** to see, per league, which source served it and how many requests of each source worked or failed.
+
 ## Testing the daily matches post
 
 Actions → post-football-news → Run workflow → tick **post_fixtures**:

@@ -694,7 +694,7 @@ def daily_fixtures_post(st, now_c, today, dry, force, test=False):
         return
     if now_c.hour >= FX.get("give_up_hour_cairo", 17) and not force:
         return  # too late to be a "today's matches" post
-    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=None if test else now_c)
+    matches = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=None if test else now_c, sources=FX.get("sources"))
     if not matches:
         print("[fixtures] no important matches found for today (or the source is unreachable)")
         if test:
@@ -738,7 +738,7 @@ def daily_fixtures_post(st, now_c, today, dry, force, test=False):
 
 def check_fixtures():
     now_c = dt.datetime.now(CAIRO)
-    ms = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=now_c)
+    ms = fixtures.todays_matches(FX["leagues"], now_c.date(), FX.get("max_matches", 36), after=now_c, sources=FX.get("sources"))
     print(f"\n{len(ms)} match(es) selected for {now_c.date()} (Cairo)  [+ selected / - dropped above]")
     if ms and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")):
         st = {}
