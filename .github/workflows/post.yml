@@ -39,6 +39,10 @@ on:
         description: "Only test photo search for the names below (no posting)"
         type: boolean
         default: false
+      check_article_images:
+        description: "Only test the article photos: shows which photo each of the top stories would get (no posting)"
+        type: boolean
+        default: false
       image_queries:
         description: "One per line: Person|Team  or  match:A|B  or  team:X  or  venue:X  or  competition:X"
         type: string
@@ -100,6 +104,10 @@ jobs:
           IMAGE_QUERIES: ${{ inputs.image_queries }}
         run: python main.py --check-images
 
+      - name: Check article photos
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.check_article_images }}
+        run: python main.py --check-article-images
+
       - name: Test the daily matches post
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.post_fixtures }}
         env:
@@ -114,7 +122,7 @@ jobs:
         run: python main.py
 
       - name: Generate and post
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.check_feeds || inputs.check_token || inputs.check_images || inputs.check_fixtures || inputs.check_gemini || inputs.post_fixtures)) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.check_feeds || inputs.check_token || inputs.check_images || inputs.check_article_images || inputs.check_fixtures || inputs.check_gemini || inputs.post_fixtures)) }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
@@ -128,7 +136,7 @@ jobs:
         run: python main.py
 
       - name: Save state
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_feeds || inputs.check_token || inputs.check_images || inputs.check_fixtures || inputs.check_gemini)) }}
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_feeds || inputs.check_token || inputs.check_images || inputs.check_article_images || inputs.check_fixtures || inputs.check_gemini)) }}
         run: |
           git config user.name "news-bot"
           git config user.email "news-bot@users.noreply.github.com"
@@ -136,7 +144,7 @@ jobs:
           git diff --cached --quiet || (git commit -m "chore: update bot state" && git push)
 
       - name: Upload preview images
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_images || inputs.check_fixtures || inputs.check_gemini || inputs.post_fixtures) }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.check_images || inputs.check_article_images || inputs.check_fixtures || inputs.check_gemini || inputs.post_fixtures) }}
         uses: actions/upload-artifact@v4
         with:
           name: preview-images
