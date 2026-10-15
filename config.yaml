@@ -106,6 +106,10 @@ priority:
   star_max_in_window: 2  # ...and give no nudge when 2 of them were already star stories (keeps the page varied)
   buzz_sources: 3        # a story covered by at least this many different outlets...
   buzz_boost: 2          # ...gets this bonus
+  statement_boost: 1.5   # coaches'/players' statements and press-conference stories get a nudge (they are what readers share)
+  statement_patterns:    # regex, matched against the headline
+    - '\b(says?|said|admits?|reveals?|insists?|warns?|slams?|hits? out|responds?|reacts?|explains?|defends?|confirms?|press conference|speaks?|opens up|breaks silence)\b'
+    - 'تصريح|يصرح|يكشف|يؤكد|يعلق|يرد |يحذر|يوضح|يعترف|مؤتمر صحفي|يفتح النار|يتحدث|يبرر|يهاجم'
   stars:
     - Cristiano Ronaldo
     - Ronaldo
@@ -161,6 +165,26 @@ priority:
     - حسام حسن
     - Infantino
     - إنفانتينو
+    - Trabzonspor
+    - ترابزونسبور
+    - ترابزون سبور
+    - Trezeguet
+    - تريزيجيه
+    - تريزيجية
+    - Zizo
+    - زيزو
+    - إمام عاشور
+    - Arne Slot
+    - آرني سلوت
+    - سلوت
+    - Arteta
+    - أرتيتا
+    - Hansi Flick
+    - فليك
+    - Luis Enrique
+    - لويس إنريكي
+    - Simeone
+    - سيميوني
 
 # The daily "today's matches" post: a short caption + a CARD listing the important matches with kick-off times.
 # Data: ESPN public scoreboard (unofficial; test with the check_fixtures run - it prints every match found and marks + selected / - dropped).
@@ -171,33 +195,41 @@ fixtures:
   enabled: true
   hour_cairo: 10              # the post goes out at the first run at/after 10:00 Cairo (runs are every 10 minutes)
   give_up_hour_cairo: 17      # if no match data by then, skip the post for today
-  rows_per_card: 9            # matches per card; a busy day becomes 2-3 cards inside ONE post (album)
-  max_cards: 3
-  max_matches: 27             # hard cap on all matches of the day (= 3 cards x 9 rows)
+  rows_per_card: 11           # capacity of one 4:5 card in rows (a match = 1, a competition heading = 1.15)
+  max_cards: 3                # a busy day becomes 2-3 cards inside ONE post (album)
+  max_matches: 32             # hard cap on all matches of the day (the leagues listed first win)
   # Data sources, in priority order. For every league the first source that returns matches wins, so a blocked source
   # (ESPN answers 403 to GitHub's servers at times) never stops the post. Run check_fixtures to see which source served what.
   #   espn          no key (unofficial)
-  #   sofascore     no key (unofficial) - covers every league incl. Egypt, Saudi and CAF
+  #   sofascore     no key (unofficial) - covers every league incl. Egypt, Saudi, Turkey and CAF
   #   footballdata  free key from football-data.org -> secret FOOTBALL_DATA_KEY (top-5 leagues + Champions League); skipped without a key
   #   thesportsdb   free test key built in (optional own key in secret THESPORTSDB_KEY)
   sources: [espn, sofascore, footballdata, thesportsdb]
-  leagues:                    # order = display order on the card
-    - {code: uefa.champions, name: "دوري أبطال أوروبا", teams: [Real Madrid, Barcelona, Atletico, Bayern, Paris Saint-Germain, Inter, Milan, Juventus, Napoli, Manchester City, Liverpool, Arsenal, Chelsea, Manchester United, Tottenham, Newcastle, Aston Villa]}
-    - {code: eng.1, name: "الدوري الإنجليزي الممتاز"}   # every match
-    - {code: esp.1, name: "الدوري الإسباني", teams: [Real Madrid, Barcelona, Atletico]}
-    - {code: ita.1, name: "الدوري الإيطالي", teams: [Inter, Milan, Juventus, Napoli]}   # top 4; add/remove names for top 3/5
-    - {code: ger.1, name: "الدوري الألماني", teams: [Bayern]}
-    - {code: fra.1, name: "الدوري الفرنسي", teams: [Paris Saint-Germain]}
-    - {code: egy.1, name: "الدوري المصري الممتاز", teams: [Al Ahly, Zamalek, Pyramids]}
-    - {code: ksa.1, name: "دوري روشن السعودي", teams: [Al Nassr, Al Hilal]}
+  # Matches of these clubs get a gold-tinted row on the cards (the matches your audience waits for most)
+  highlight: [Al Ahly, Zamalek, Pyramids, Trabzonspor, Real Madrid, Barcelona, Liverpool, Manchester City, Bayern, Paris Saint-Germain, Al Nassr, Al Hilal]
+  # "important matches" = only matches of the clubs listed per league (no teams list = every match of that league).
+  # Order = display order on the cards. Names are matched as text inside the club name (case/accents ignored).
+  leagues:
+    - {code: uefa.champions, name: "دوري أبطال أوروبا", teams: [Real Madrid, Barcelona, Atletico, Bayern, Borussia Dortmund, Paris Saint-Germain, Marseille, Inter, Milan, Juventus, Napoli, Roma, Manchester City, Liverpool, Arsenal, Chelsea, Manchester United, Tottenham, Newcastle, Aston Villa, Benfica, Porto, Sporting CP, Galatasaray, Ajax]}
+    - {code: uefa.europa, name: "الدوري الأوروبي", max: 4, featured: [Trabzonspor], teams: [Trabzonspor, Galatasaray, Fenerbahce, Besiktas, Manchester United, Tottenham, Roma, Lazio, Atletico, Real Betis, Porto, Ajax, Aston Villa]}
+    - {code: egy.1, name: "الدوري المصري الممتاز", teams: [Al Ahly, Zamalek, Pyramids, Al Masry, Ismaily, Al Ittihad]}
     - {code: caf.champions, name: "دوري أبطال إفريقيا", teams: [Al Ahly, Zamalek, Pyramids]}
-    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية", teams: [Al Ahly, Zamalek, Pyramids]}
-    - {code: uefa.europa, name: "الدوري الأوروبي", max: 3, featured: [Manchester United, Tottenham, Roma, Atletico, Real Betis, Porto, Ajax, Lazio, Aston Villa]}
+    - {code: caf.confed, name: "كأس الكونفدرالية الإفريقية", teams: [Al Ahly, Zamalek, Pyramids, Al Masry]}
+    - {code: tur.1, name: "الدوري التركي", teams: [Trabzonspor, Galatasaray, Fenerbahce, Besiktas]}   # Salah plays for Trabzonspor
+    - {code: eng.1, name: "الدوري الإنجليزي الممتاز"}   # every match
+    - {code: esp.1, name: "الدوري الإسباني", teams: [Real Madrid, Barcelona, Atletico, Sevilla, Valencia]}
+    - {code: ita.1, name: "الدوري الإيطالي", teams: [Inter, Milan, Juventus, Napoli, Roma]}
+    - {code: ger.1, name: "الدوري الألماني", teams: [Bayern, Borussia Dortmund]}
+    - {code: fra.1, name: "الدوري الفرنسي", teams: [Paris Saint-Germain, Marseille]}
+    - {code: ksa.1, name: "دوري روشن السعودي", teams: [Al Nassr, Al Hilal, Al Ittihad, Al Ahli]}
+    - {code: por.1, name: "الدوري البرتغالي", teams: [Benfica, Porto, Sporting CP]}
+    - {code: ned.1, name: "الدوري الهولندي", teams: [Ajax]}
     - {code: eng.league_cup, name: "كأس الرابطة الإنجليزية", max: 3, featured: [Manchester United, Manchester City, Liverpool, Arsenal, Chelsea, Tottenham]}
     - {code: eng.fa, name: "كأس الاتحاد الإنجليزي", max: 3, featured: [Manchester United, Manchester City, Liverpool, Arsenal, Chelsea, Tottenham]}
     - {code: esp.copa_del_rey, name: "كأس ملك إسبانيا", teams: [Real Madrid, Barcelona, Atletico]}
     - {code: usa.1, name: "الدوري الأمريكي", teams: [Inter Miami]}
     - {code: fifa.world, name: "كأس العالم", max: 6}
+    - {code: caf.nations, name: "كأس الأمم الإفريقية", max: 4, featured: [Egypt, Morocco, Senegal, Algeria, Nigeria, Ivory Coast]}
     - {code: uefa.nations, name: "دوري الأمم الأوروبية", max: 4, featured: [France, Spain, England, Germany, Portugal, Italy]}
     - {code: fifa.worldq.caf, name: "تصفيات كأس العالم - إفريقيا", max: 4, featured: [Egypt, Morocco, Senegal, Algeria, Nigeria]}
     - {code: fifa.worldq.uefa, name: "تصفيات كأس العالم - أوروبا", max: 4, featured: [France, Spain, England, Germany, Portugal, Italy]}
@@ -205,7 +237,20 @@ fixtures:
 
 # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
-  cards_only: true                  # true = every post gets a headline card (6 designs, never the same one twice in a row) and photos are never searched
+  card_sizes: {portrait: 3, landscape: 2}   # headline cards: portrait = big 4:5 (1080x1350), landscape = classic (1200x630); numbers = how often. Never the same size 3 times in a row
+  cards_only: false                 # true = every post gets a headline card (6 designs...) and no photo is used at all; false = real photos (see article_images)
+  # The photo of every post = the lead photo of the source article. Needs cards_only: false.
+  article_images:
+    enabled: true
+    fallback: card             # when the article has no usable photo: card = headline card | commons = stock-photo search (the older method below) | skip = don't publish the story
+    credit: true               # last line of the post: 📷 الصورة: <publisher>
+    credit_prefix: "الصورة:"
+    skip_agencies: true        # skip photos credited to Getty / Reuters / AP / AFP / PA / Shutterstock / Alamy ... (the agencies that enforce their rights; most big outlets use them)
+    brand_mark: true           # small "شيكس" badge in the corner of the photo
+    min_width: 800
+    min_height: 450
+    max_side: 1600
+    max_candidates: 5
   enabled: true
   no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
   archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)
@@ -252,10 +297,12 @@ sources:
   - {name: GNews - عاجل كرة القدم, url: "https://news.google.com/rss/search?q=%D8%B9%D8%A7%D8%AC%D9%84+%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+when:6h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}
 
 
-# Writing styles (all formal Modern Standard Arabic, always the FULL news); one per post (w = how often)
+# Writing styles (all formal Modern Standard Arabic, always the FULL news, always: headline line first, then spaced paragraphs
+# with symbols); one per post (w = how often)
 styles:
-  - {w: 3, name: "رسمي إخباري", desc: "نبرة نشرة أخبار رصينة بالفصحى المبسطة، جملة افتتاحية قوية ومباشرة ثم الخبر كاملًا"}
-  - {w: 3, name: "حماسي بالفصحى", desc: "فصحى مبسطة بنبرة حماسية وإيقاع سريع كأنه معلق رياضي، دون أي كلمة عامية، والخبر كامل"}
-  - {w: 2, name: "الخبر كاملًا ثم سؤال", desc: "الخبر كاملًا بالفصحى، وفي آخره سؤال ذكي موجّه للجمهور في سطر مستقل لتشجيع التعليقات"}
-  - {w: 2, name: "موجز تحليلي", desc: "الخبر كاملًا بنبرة رصينة، ثم سياقه أو دلالته بشرط أن يكون مذكورًا في المقال نفسه"}
-  - {w: 2, name: "عنوان جذاب ثم التفاصيل", desc: "سطر أول جذاب غير مضلل يشد الانتباه، ثم تفاصيل الخبر كاملة بالفصحى"}
+  - {w: 3, name: "نشرة رسمية", desc: "عنوان إخباري رصين ثم فقرات قصيرة بنبرة نشرة أخبار بالفصحى المبسطة، والخبر كاملًا"}
+  - {w: 3, name: "حماسي بالفصحى", desc: "عنوان حماسي وإيقاع سريع كأنه معلق رياضي، فصحى مبسطة بلا أي كلمة عامية، والخبر كامل في فقرات قصيرة"}
+  - {w: 3, name: "تصريح في الواجهة", desc: "إن تضمن المقال تصريحًا لمدرب أو لاعب فالعنوان يلخص التصريح، ثم أهم عباراته بين «» مع اسم قائلها وصفته، ثم باقي الخبر؛ وإن لم يتضمن تصريحًا فاكتب بنبرة نشرة رسمية"}
+  - {w: 2, name: "نقاط سريعة", desc: "عنوان قوي ثم من 3 إلى 5 نقاط قصيرة، كل نقطة في سطر مستقل تبدأ برمز، تغطي الخبر كاملًا"}
+  - {w: 2, name: "الخبر ثم سؤال", desc: "عنوان وفقرات الخبر كاملًا، وفي آخره سطر مستقل بسؤال ذكي موجّه للجمهور المصري لتشجيع التعليقات"}
+  - {w: 2, name: "موجز تحليلي", desc: "عنوان وفقرات الخبر كاملًا بنبرة رصينة، ثم فقرة أخيرة عن سياقه أو دلالته بشرط أن يكون مذكورًا في المقال نفسه"}

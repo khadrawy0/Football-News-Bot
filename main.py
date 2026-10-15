@@ -7,6 +7,7 @@ Env vars:
   FORCE=1     ignore quiet hours and daily cap (for testing)
 Flags:
   --check     test every feed and print how many fresh items each returns
+  --check-article-images   for the top stories: fetch the article, show which photo would be used (saved to out/)
 """
 import argparse
 import concurrent.futures as cf
@@ -27,6 +28,7 @@ import feedparser
 import requests
 import yaml
 
+import articleimg
 import articles
 import card
 import fixtures
@@ -149,10 +151,24 @@ def fetch_source(src):
                 "weight": src["weight"],
                 "region": src["region"],
                 "published": published,
+                "feed_imgs": feed_images(e),
                 "tok": tokens(title),
             }
         )
     return src, items
+
+
+def feed_images(e):
+    """Photo URLs the RSS entry itself carries (media:content / media:thumbnail / image enclosure)."""
+    urls = []
+    for k in ("media_content", "media_thumbnail"):
+        for mm in e.get(k) or []:
+            if mm.get("url"):
+                urls.append(mm["url"])
+    for l in e.get("links") or []:
+        if l.get("rel") == "enclosure" and str(l.get("type", "")).startswith("image/") and l.get("href"):
+            urls.append(l["href"])
+    return urls
 
 
 def fetch_all():
@@ -195,6 +211,7 @@ def _star_patterns():
 
 
 STARS = _star_patterns()
+STMT_RE = re.compile("|".join(f"(?:{p})" for p in P["statement_patterns"]), re.I) if P.get("statement_patterns") else None
 
 
 def star_hit(text):
@@ -238,6 +255,9 @@ def rank(items, st):
         if n_src >= P.get("buzz_sources", 3):  # many outlets cover it = the audience cares
             lead["score"] += P.get("buzz_boost", 4)
             lead["buzz"] = n_src
+        if STMT_RE and any(STMT_RE.search(x["title"]) for x in m):  # a coach / player statement: what readers share most
+            lead["score"] += P.get("statement_boost", 1.5)
+            lead["statement"] = True
         lead["all_ids"] = [x["id"] for x in m]
         ranked.append(lead)
     return sorted(ranked, key=lambda x: -x["score"])
@@ -276,9 +296,10 @@ def build_prompt(items, recent=()):
     blocks = []
     for it in items:
         st = it["style"]
+        note = "note: العنوان يوحي بتصريحات؛ ابحث في المقال عن كلام المدرب أو اللاعب واجعله محور المنشور.\n" if it.get("statement") else ""
         blocks.append(
             f'id: {it["id"]}\nheadline: {it["title"]}\n'
-            f'style: {st["name"]} — {st["desc"]}\n'
+            f'style: {st["name"]} — {st["desc"]}\n{note}'
             f'article:\n{(it.get("article") or "")[:5000]}'
         )
     return (
@@ -286,8 +307,16 @@ def build_prompt(items, recent=()):
         "اكتب منشورًا واحدًا لكل خبر من الأخبار التالية، بالأسلوب المحدد له. تحت كل خبر نص المقال المصدر.\n\n"
         "قواعد المحتوى:\n"
         "- المنشور هو الخبر كاملًا: غطِّ كل المعلومات الأساسية (من؟ ماذا؟ متى؟ أين؟ الأرقام والنتائج والتصريحات المهمة "
-        "والخلفية الضرورية) بحيث لا يحتاج القارئ إلى فتح المصدر. الطول من 4 إلى 9 جمل، موزعة على فقرتين أو ثلاث "
-        "بأسطر فارغة بينها (\\n\\n). لا تحذف معلومة جوهرية.\n"
+        "والخلفية الضرورية) بحيث لا يحتاج القارئ إلى فتح المصدر. الطول من 5 إلى 10 جمل في المجموع. لا تحذف معلومة جوهرية.\n"
+        "- تنسيق المنشور (مهم جدًا، فالمنشور ليس كتلة نص واحدة): السطر الأول عنوان قوي قصير (من 6 إلى 14 كلمة) يبدأ بإيموجي واحد "
+        "مناسب للخبر (⚽ 🚨 🔥 ✅ 🏆 💬 ⚠️ ...) ولا ينتهي بنقطة ويلخص أهم ما في الخبر. بعده سطر فارغ، ثم المحتوى في 2 إلى 4 فقرات قصيرة "
+        "(من جملة إلى ثلاث) بينها سطر فارغ (\\n\\n). ابدأ كل فقرة برمز مناسب: 🔹 للمعلومة الأساسية، 📌 للتفصيلة المهمة، 💬 للتصريح، "
+        "📊 للأرقام والنتائج، ⏰ للتوقيت، 🔙 للخلفية؛ نوّع الرموز ولا تكرر الرمز نفسه في فقرتين متتاليتين. الأسلوب المحدد لكل خبر "
+        "يغيّر النبرة وشكل المحتوى (نقاط، سؤال ختامي...) لكن العنوان يبقى في أول سطر دائمًا.\n"
+        "- لو في المقال تصريح لمدرب أو لاعب أو مسؤول فاجعله محور المنشور: انقل أهم عبارة فيه (أقل من 15 كلمة) بين «» مع اسم قائلها "
+        "وصفته، ثم أكمل ما قاله بصياغتك.\n"
+        "- اكتب لجمهور مصري وعربي: أبرز الجانب الذي يهم القارئ المصري (محمد صلاح، المنتخب المصري، الأهلي والزمالك، أي لاعب أو نادٍ "
+        "مصري أو عربي) متى كان مذكورًا في المقال، دون اختلاق أي صلة.\n"
         "- استخدم فقط المعلومات الموجودة في نص المقال. لا تخترع أرقامًا أو تصريحات أو نتائج أو خلفيات من عندك.\n"
         "- اكتب بكلماتك أنت، ولا تنسخ جملًا من المقال. يجوز اقتباس عبارة قصيرة جدًا بين علامتي تنصيص إن كانت جوهرية.\n"
         "- المصدر قد يكون بالإنجليزية، والمنشور دائمًا بالعربية الفصحى المبسطة الرسمية. ممنوع العامية المصرية أو أي لهجة أخرى.\n"
@@ -300,7 +329,7 @@ def build_prompt(items, recent=()):
         "- لو الخبر شائعة أو غير مؤكد، صغه بحذر (ذكرت تقارير / يتردد أن) أو ضع skip=true.\n"
         "- ضع skip=true لو الخبر ليس عن كرة القدم، أو ضعيف جدًا، أو تافه، أو نص المقال ناقص أو غير واضح.\n"
         "- لو خبران أو أكثر يتناولان نفس الحدث، اكتب منشورًا لواحد فقط وضع skip=true للباقي.\n"
-        "- ابدأ بجملة قوية تشد القارئ، ونوّع في الافتتاحيات. إيموجي من 0 إلى 2 بذوق.\n"
+        "- نوّع في صياغة العناوين والافتتاحيات من منشور إلى آخر ولا تكرر القالب نفسه.\n"
         "- لا إساءة لأي لاعب أو نادٍ أو جمهور أو دولة.\n\n"
         "حقل images: قائمة من 0 إلى 4 مواضيع للصورة، مرتبة من الأنسب إلى الأقل. كل عنصر واحد من هذه الأنواع "
         "(الأسماء بالإنجليزية كما في ويكيبيديا):\n"
@@ -558,16 +587,33 @@ def as_specs(res):
 def headline_for_card(res, text):
     t = re.sub(r"\s+", " ", str(res.get("card_title") or "")).strip()
     if len(t) < 8:
-        first = re.split(r"(?<=[.!؟?])\s", text.strip())[0]
-        t = first
+        t = text.strip().split("\n")[0]  # the post's first line is its headline
+    t = re.sub(r"[^\w\s\u0600-\u06FF«»\"'’:،؟?!.\-–%/]", "", t).strip()  # the card font has no emoji
     if len(t) > 90:
         t = t[:90].rsplit(" ", 1)[0] + "…"
     return t
 
 
+def pick_card_size(st):
+    """'portrait' (big 4:5) or 'landscape' (classic), weighted by images.card_sizes, never the same size 3 times in a row."""
+    weights = IMG.get("card_sizes") or {"portrait": 3, "landscape": 2}
+    names = [n for n in weights if n in card.SIZES]
+    recent = st.setdefault("recent_card_sizes", [])
+    pool = [n for n in names if recent[-2:].count(n) < 2] or names
+    size = random.choices(pool, weights=[weights[n] for n in pool])[0]
+    recent.append(size)
+    del recent[:-6]
+    return size
+
+
 def photo_credit_line(img):
     if img.get("kind") == "card":
         return ""
+    if img.get("kind") == "article":
+        ai = IMG.get("article_images") or {}
+        if not ai.get("credit", True) or not img.get("credit_core"):
+            return ""
+        return f"📷 {ai.get('credit_prefix', 'الصورة:')} {img['credit_core']}"
     label = "صورة أرشيفية" if IMG.get("archive_label", True) else ""
     core = img.get("credit_core", "")
     if not label and not core:
@@ -588,11 +634,14 @@ def fill_articles(pool, st, dry):
     """Attach the full article text to each candidate; drop those we can't read."""
     mc = S.get("min_article_chars", 350)
     with cf.ThreadPoolExecutor(max_workers=4) as ex:
-        texts = list(ex.map(lambda it: articles.article_text(it["url"], mc), pool))
+        pages = list(ex.map(lambda it: articles.fetch_article(it["url"], mc), pool))
     ok = []
-    for it, txt in zip(pool, texts):
-        if txt:
-            it["article"] = txt
+    for it, pg in zip(pool, pages):
+        if pg:
+            it["article"] = pg["text"]
+            it["img_cands"] = pg["images"]  # lead photo candidates of the article page
+            it["img_agency"] = pg["agency"]  # the page credits a photo agency (Getty, Reuters, AP...)
+            it["page_url"] = pg["url"]
             ok.append(it)
         elif not dry:
             st["seen"].extend(it["all_ids"])  # unreadable (paywall/blocked): don't retry forever
@@ -616,6 +665,26 @@ def parse_image_line(line):
     return {"kind": "person", "person": person.strip(), "team": team.strip() or None}
 
 
+def check_article_images():
+    """--check-article-images: fetch the top stories' articles and show which photo each post would get. Posts nothing."""
+    ai = IMG.get("article_images") or {}
+    st = load_state()
+    ranked = rank(fetch_all(), st)
+    pool = fill_articles(ranked[: int(os.environ.get("N", "12"))], st, True)
+    got = 0
+    for i, it in enumerate(pool, 1):
+        print("=" * 60, f"\n{it['source']}: {it['title'][:90]}")
+        print(f"  page: {it.get('page_url', '')[:110]}\n  candidates: {len(it.get('img_cands') or [])} | feed thumbnails: {len(it.get('feed_imgs') or [])}"
+              f" | credited to an agency: {it.get('img_agency')}")
+        img = articleimg.pick(it, st["recent_images"], ai)
+        if img:
+            got += 1
+            print(f"  RESULT: photo saved: {save_preview(img, i)}  | credit line: {photo_credit_line(img) or '(none)'}")
+        else:
+            print(f"  RESULT: no usable photo -> fallback '{ai.get('fallback', 'card')}'")
+    print(f"\n{got}/{len(pool)} stories would get a real article photo")
+
+
 def check_images():
     """--check-images: print the photo chosen for each line of IMAGE_QUERIES and save it to out/. Posts nothing."""
     vf = vision_call if (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")) else None
@@ -631,8 +700,9 @@ def check_images():
             print("  RESULT: no suitable photo found")
     # headline-card preview
     sample = os.environ.get("CARD_SAMPLE", "اتحاد الكرة يعلن تعديل لائحة الدوري: 20 فريقًا في موسم 2027/2028")
-    p = save_preview({"bytes": card.make_card(sample), "mime": "image/jpeg", "kind": "card"}, 99)
-    print(f"\ncard sample saved: {p}")
+    for k, size in enumerate(card.SIZE_NAMES):  # both card sizes
+        p = save_preview({"bytes": card.make_card(sample, size=size), "mime": "image/jpeg", "kind": "card"}, 99 - k)
+        print(f"\ncard sample ({size}) saved: {p}")
 
 
 FX = CFG.get("fixtures", {})
@@ -670,7 +740,9 @@ def arabic_team_names(matches, st):
 
 
 def fixtures_caption(day):
-    return f"⚽ مباريات اليوم — {_date_ar(day)}"
+    return (f"⚽ أهم مباريات اليوم — {_date_ar(day)}\n\n"
+            "📌 مواعيد أبرز مباريات اليوم في الكروت المرفقة\n"
+            "🕒 جميع المواعيد بتوقيت القاهرة")
 
 
 def fixtures_image(matches, st, day):
@@ -678,8 +750,8 @@ def fixtures_image(matches, st, day):
     missing = [n for n in fixtures.team_names(matches) if n not in names]
     if missing:
         raise RuntimeError(f"no Arabic name for: {missing}")
-    groups = fixtures.group_for_card(matches, names, _t12)
-    pages = fixtures.split_pages(groups, FX.get("rows_per_card", 9), FX.get("max_cards", 4))
+    groups = fixtures.group_for_card(matches, names, _t12, FX.get("highlight"))
+    pages = fixtures.split_pages(groups, FX.get("rows_per_card", 11), FX.get("max_cards", 3))
     return [card.make_fixtures_card(_date_ar(day), g, part=(i + 1, len(pages)) if len(pages) > 1 else None)
             for i, g in enumerate(pages)]
 
@@ -753,6 +825,7 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--check-token", action="store_true")
     ap.add_argument("--check-images", action="store_true")
+    ap.add_argument("--check-article-images", action="store_true")
     ap.add_argument("--check-fixtures", action="store_true")
     ap.add_argument("--check-gemini", action="store_true")
     args = ap.parse_args()
@@ -766,6 +839,8 @@ def main():
         return diagnose_token()
     if args.check_images:
         return check_images()
+    if args.check_article_images:
+        return check_article_images()
 
     dry = os.environ.get("DRY_RUN") == "1"
     force = os.environ.get("FORCE") == "1"
@@ -838,21 +913,34 @@ def main():
             print(f"skipped (text invalid after cleanup): {it['title'][:70]}")
             continue
         img = None
-        if os.environ.get("CARDS_ONLY") == "1" or IMG.get("cards_only"):
+        ai = IMG.get("article_images") or {}
+        use_cards = os.environ.get("CARDS_ONLY") == "1" or IMG.get("cards_only")
+        if not use_cards and ai.get("enabled"):
+            img = articleimg.pick(it, st["recent_images"], ai)  # the lead photo of the source article
+            if img is None:
+                fb = ai.get("fallback", "card")
+                if fb == "skip":
+                    print(f"skipped (no usable article photo): {it['title'][:70]}")
+                    continue
+                use_cards = fb == "card"  # "commons" falls through to the stock-photo search below
+        if img is not None:
+            pass
+        elif use_cards:
             recent = st.setdefault("recent_cards", [])
             pool_styles = [n for n in card.STYLE_NAMES if n not in recent[-2:]] or card.STYLE_NAMES
             cstyle = random.choice(pool_styles)
             recent.append(cstyle)
             del recent[:-6]
-            img = {"bytes": card.make_card(headline_for_card(res, text), style=cstyle), "mime": "image/jpeg",
-                   "title": "card", "page": f"(headline card: {cstyle})", "license": "", "credit_core": "", "kind": "card"}
+            csize = pick_card_size(st)
+            img = {"bytes": card.make_card(headline_for_card(res, text), style=cstyle, size=csize), "mime": "image/jpeg",
+                   "title": "card", "page": f"(headline card: {cstyle}, {csize})", "license": "", "credit_core": "", "kind": "card"}
         elif IMG.get("enabled", True):
             vf = vision_call if IMG.get("vision_check", True) else None
             img = images.find_for_story(as_specs(res), st["recent_images"], IMG, vision_fn=vf)
             if img is None:
                 policy = IMG.get("no_image_policy", "card")
                 if policy == "card":
-                    img = {"bytes": card.make_card(headline_for_card(res, text)), "mime": "image/jpeg", "title": "card",
+                    img = {"bytes": card.make_card(headline_for_card(res, text), size=pick_card_size(st)), "mime": "image/jpeg", "title": "card",
                            "page": "(headline card)", "license": "", "credit_core": "", "kind": "card"}
                 elif policy == "skip":
                     print(f"skipped (no suitable photo): {it['title'][:70]}  images={as_specs(res)}")

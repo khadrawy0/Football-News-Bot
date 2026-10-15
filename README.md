@@ -22,6 +22,21 @@ Runs hourly on GitHub Actions, up to 3 posts per run, 60 per Cairo day, quiet ho
 2. Run workflow again with **dry_run** ticked → the log shows the posts it would publish. Tune the styles/prompt.
 3. Run with dry_run unticked for one real post, check it on the page. After that the hourly schedule takes over.
 
+## Photos (article photo instead of a card)
+
+`images.article_images` in `config.yaml` (needs `images.cards_only: false`): every post gets the **lead photo of the source article** (og:image / twitter:image / schema.org image, then the feed thumbnail). The photo is checked (not a logo/placeholder, at least 800x450, normal shape, not used recently), cropped only if it is outside 4:5 .. 1.91:1, shrunk to 1600 px, gets a small brand badge, and the post ends with `📷 الصورة: <publisher>`.
+
+- `skip_agencies: true` skips photos whose page credits Getty / Reuters / AP / AFP / PA / Shutterstock / Alamy and similar agencies. Most big outlets use them, so many stories will fall back to the headline card. `false` removes the filter (and keeps the legal risk: article photos belong to the publisher or agency, a credit line is not a licence).
+- `fallback`: `card` (headline card), `commons` (the older stock-photo search) or `skip` (don't publish the story).
+- Test: Run workflow -> **check_article_images** shows, for the top stories, which photo each would get (saved in the `preview-images` artifact) and how many would fall back.
+- Back to cards only: `cards_only: true`.
+
+## Post look
+
+- **Text posts:** headline line first (starts with one emoji), blank line, then 2-4 short paragraphs opened by symbols (🔹 📌 💬 📊 ⏰ 🔙). Statements of coaches/players are pushed up in the ranking (`priority.statement_boost`) and quoted between « ».
+- **Headline cards:** two sizes picked at random, never the same size three times in a row (`images.card_sizes`): 4:5 big (1080x1350) and the classic landscape (1200x630), 6 designs, large text; statement cards get a big quote mark.
+- **"أهم مباريات اليوم" cards:** 1080x1350 (4:5), date on its own pill, up to 3 cards in one post; matches of the clubs in `fixtures.highlight` are tinted gold.
+
 ## Match data sources (daily "today's matches" post)
 
 Several sources, tried in the order of `fixtures.sources` in `config.yaml`; for each league the first source that returns matches wins, so one blocked source never stops the post:
