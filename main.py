@@ -668,11 +668,52 @@ def fill_articles(pool, st, dry):
     return ok
 
 
+def search_alts(it, limit=8):
+    """Search Google News for the SAME story at other outlets (key words of the headline) -> [{"url","source","feed_imgs"}]."""
+    import urllib.parse
+
+    words = re.findall(r"[\w'’\-]+", it["title"])
+    arabic = bool(re.search(r"[\u0600-\u06FF]", it["title"]))
+    if arabic:
+        key = [w for w in words if len(w) > 3 and w not in STOP][:4]
+    else:  # names first (capitalised words after the first), then long words
+        names = [w for w in words[1:] if w[:1].isupper() and not w.isupper() and len(w) > 2 and w.lower() not in STOP]
+        key = (names + [w for w in words if len(w) > 5 and w not in names and w.lower() not in STOP])[:4]
+    if len(key) < 2:
+        return []
+    q = urllib.parse.quote(" ".join(key) + " when:2d")
+    lang = "hl=ar&gl=EG&ceid=EG:ar" if arabic else "hl=en&gl=US&ceid=US:en"
+    try:
+        r = requests.get(f"https://news.google.com/rss/search?q={q}&{lang}", headers=UA, timeout=20)
+        r.raise_for_status()
+        feed = feedparser.parse(r.content)
+    except Exception as e:
+        print(f"[alts] search failed: {e}", file=sys.stderr)
+        return []
+    out, seen_src = [], {it["source"]}
+    for e in feed.entries[:20]:
+        pub = (e.get("source") or {}).get("title") or ""
+        title = re.sub(r"\s+[-–—|]\s+[^-–—|]+$", "", clean(e.get("title", "")))
+        tk = tokens(title)
+        sim = jaccard(tk, it["tok"])
+        if not pub or pub in seen_src or sim < 0.15 or len(tk & it["tok"]) < 2 or not e.get("link"):
+            continue
+        seen_src.add(pub)
+        out.append({"url": e["link"], "source": pub, "feed_imgs": [], "sim": sim})
+    out.sort(key=lambda a: -a["sim"])
+    print(f"[alts] search '{' '.join(key)}': {len(out)} other outlet(s) with the same story")
+    return out[:limit]
+
+
 def load_alts(it, limit):
     """Fetch the pages of the same story at other outlets (only when the lead article has no usable photo) -> it["alt_pages"]."""
     if "alt_pages" in it:
         return
-    alts = (it.get("alts") or [])[:limit]
+    alts = list(it.get("alts") or [])
+    if (IMG.get("article_images") or {}).get("search_other_outlets", True):
+        known = {a["url"] for a in alts}
+        alts += [a for a in search_alts(it) if a["url"] not in known]
+    alts = alts[:limit]
     with cf.ThreadPoolExecutor(max_workers=4) as ex:
         pages = list(ex.map(lambda a: articles.fetch_article(a["url"], 0), alts))
     it["alt_pages"] = [
@@ -711,7 +752,7 @@ def check_article_images():
         vf = vision_call if (ai.get("verify", True) and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY"))) else None
         img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf)
         if img is None and ai.get("other_outlets", 3):
-            print(f"  lead article has no usable photo -> trying {len(it.get('alts') or [])} other outlet(s) with the same story")
+            print("  lead article has no usable photo -> searching other outlets with the same story")
             load_alts(it, ai.get("other_outlets", 3))
             img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf, use_alts=True)
         if img:

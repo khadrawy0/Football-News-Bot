@@ -257,7 +257,8 @@ images:
     min_height: 400
     max_side: 1600
     max_candidates: 6
-    other_outlets: 3           # no usable photo at the lead outlet -> try the photos of up to 3 other outlets covering the SAME story
+    other_outlets: 5           # no usable photo at the lead outlet -> try the photos of up to 5 other outlets covering the SAME story
+    search_other_outlets: true # find those outlets by searching Google News with the headline's key words (the feeds alone rarely list a 2nd outlet)
   enabled: true
   no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
   archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)
