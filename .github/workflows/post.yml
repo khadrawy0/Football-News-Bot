@@ -106,6 +106,9 @@ jobs:
 
       - name: Check article photos
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.check_article_images }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
         run: python main.py --check-article-images
 
       - name: Test the daily matches post
