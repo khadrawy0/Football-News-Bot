@@ -251,7 +251,7 @@ images:
     skip_agencies: true        # skip photos credited to Getty / Reuters / AP / AFP / PA / Shutterstock / Alamy ... (the agencies that enforce their rights; most big outlets use them)
     verify: true               # Gemini vision checks each photo fits the story (football, no other sport/ad/watermark); never identifies faces. A quota failure accepts the photo
     max_age_days: 21           # skip photos whose URL carries an older /YYYY/MM/ date (stale archive photos)
-    skip_hosts: [ichef.bbci.co.uk, e0.365dm.com]             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
+    skip_hosts: [ichef.bbci.co.uk, e0.365dm.com, townnews.com, gannett-cdn.com]             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
     brand_mark: true           # small "شيكس" badge in the corner of the photo
     min_width: 700             # Arabic sites publish their lead photo at 750x450
     min_height: 400
