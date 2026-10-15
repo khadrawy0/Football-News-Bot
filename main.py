@@ -96,6 +96,7 @@ def load_state():
     st.setdefault("recent_titles", [])
     st.setdefault("recent_headlines", [])
     st.setdefault("recent_images", [])
+    st.setdefault("recent_posts", [])
     st.setdefault("posts", {})
     return st
 
@@ -105,6 +106,8 @@ def save_state(st):
     st["recent_titles"] = st["recent_titles"][-300:]
     st["recent_headlines"] = st["recent_headlines"][-30:]
     st["recent_images"] = st["recent_images"][-40:]
+    cut = (utcnow() - dt.timedelta(hours=72)).isoformat()
+    st["recent_posts"] = [p for p in st["recent_posts"] if p.get("ts", "") >= cut][-120:]
     st["posts"] = {k: st["posts"][k] for k in sorted(st["posts"])[-7:]}
     STATE_PATH.parent.mkdir(exist_ok=True)
     STATE_PATH.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
@@ -201,9 +204,9 @@ def _fold(text):
     return norm_ar("".join(c for c in t if not unicodedata.combining(c))).lower()
 
 
-def _star_patterns():
+def _star_patterns(names=None):
     pats = []
-    for name in P.get("stars", []):
+    for name in (P.get("stars", []) if names is None else names):
         n = re.escape(_fold(name))
         if re.search(r"[\u0600-\u06ff]", n):  # Arabic: allow one attached prefix (و ف ب ل ك ال ...)
             rx = r"(?<![\u0600-\u06ff])(?:[وفبلك]|ال|وال|بال|لل)?" + n + r"(?![\u0600-\u06ff])"
@@ -214,6 +217,16 @@ def _star_patterns():
 
 
 STARS = _star_patterns()
+TIER1 = _star_patterns(P.get("tier1", []))          # the page's core subjects: Ahly, Zamalek, Barcelona, Salah, Marmoush...
+POPULAR_EXTRA = _star_patterns(P.get("popular_extra", []))  # big clubs: they pass the popularity gate without any score boost
+
+
+def _hit(pats, text):
+    t = _fold(text)
+    for name, rx in pats:
+        if rx.search(t):
+            return name
+    return None
 STMT_RE = re.compile("|".join(f"(?:{p})" for p in P["statement_patterns"]), re.I) if P.get("statement_patterns") else None
 
 
@@ -261,6 +274,11 @@ def rank(items, st):
         if STMT_RE and any(STMT_RE.search(x["title"]) for x in m):  # a coach / player statement: what readers share most
             lead["score"] += P.get("statement_boost", 1.5)
             lead["statement"] = True
+        t1 = _hit(TIER1, blob)
+        if t1:
+            lead["tier1"] = t1
+            lead["score"] += P.get("tier1_boost", 5)
+        lead["popular"] = bool(t1 or star or _hit(POPULAR_EXTRA, blob) or n_src >= P.get("popular_min_sources", 3))
         lead["all_ids"] = [x["id"] for x in m]
         seen_src = {lead["source"]}
         lead["alts"] = []  # the same story at other outlets: their own photos are extra candidates
@@ -269,6 +287,11 @@ def rank(items, st):
                 seen_src.add(x["source"])
                 lead["alts"].append({"url": x["url"], "source": x["source"], "feed_imgs": x.get("feed_imgs") or []})
         ranked.append(lead)
+    if P.get("require_popular"):  # only stories with an audience: core subjects, stars, big clubs, or covered by many outlets
+        dropped = [r for r in ranked if not r["popular"]]
+        ranked = [r for r in ranked if r["popular"]]
+        if dropped:
+            print(f"popularity gate: dropped {len(dropped)} minor stories, kept {len(ranked)}")
     return sorted(ranked, key=lambda x: -x["score"])
 
 
@@ -340,18 +363,13 @@ def build_prompt(items, recent=()):
         "- لو خبران أو أكثر يتناولان نفس الحدث، اكتب منشورًا لواحد فقط وضع skip=true للباقي.\n"
         "- نوّع في صياغة العناوين والافتتاحيات من منشور إلى آخر ولا تكرر القالب نفسه.\n"
         "- لا إساءة لأي لاعب أو نادٍ أو جمهور أو دولة.\n\n"
-        "حقل images: قائمة من 0 إلى 4 مواضيع للصورة، مرتبة من الأنسب إلى الأقل. كل عنصر واحد من هذه الأنواع "
-        "(الأسماء بالإنجليزية كما في ويكيبيديا):\n"
-        '- {"kind":"person","person":"Mohamed Salah","team":"Liverpool"}: لاعب أو مدرب يدور حوله الخبر، و team هو النادي '
-        "أو المنتخب الذي يرتدي قميصه في سياق الخبر (قد يكون مختلفًا عن ناديه الحالي).\n"
-        '- {"kind":"match","team":"Liverpool","opponent":"Manchester City"}: لخبر مباراة بين فريقين محددين.\n'
-        '- {"kind":"team","team":"Al Ahly SC"}: لخبر عن نادٍ أو منتخب بعينه.\n'
-        '- {"kind":"venue","venue":"Anfield"}: ملعب محدد مذكور في المقال أو ملعب صاحب الأرض.\n'
-        '- {"kind":"competition","name":"UEFA Champions League"}: لخبر عن بطولة أو مسابقة.\n'
-        "اترك القائمة فارغة لو الخبر إداري أو عام ولا يرتبط بشخص أو فريق أو ملعب (قرار اتحاد، تعديل لائحة، "
-        "جدول مواعيد...).\n"
-        "حقل card_title: عنوان قصير جذاب غير مضلل (حتى 70 حرفًا) بالفصحى يلخص الخبر، يُكتب على بطاقة الصورة.\n\n"
-        'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "...", "card_title": "...", "images": []}\n\n'
+        "حقل topic: وصف قصير جدًا بالإنجليزية (من 3 إلى 6 كلمات) للحدث الأساسي، بصيغة ثابتة يمكن مقارنتها بين المصادر "
+        "(مثل: Vinicius four-match ban, Salah Liverpool contract). الخبران عن الحدث نفسه لهما topic متطابق تقريبًا.\n"
+        "حقل importance: رقم من 1 إلى 10 لأهمية الخبر وشعبيته عند الجمهور المصري والعربي. 9-10: خبر ضخم يتحدث عنه الجميع (الأهلي، "
+        "الزمالك، برشلونة، محمد صلاح، عمر مرموش، حمزة عبد الكريم، المنتخب المصري، رونالدو وميسي، حدث عالمي كبير). 6-8: خبر مهم "
+        "يهم قطاعًا كبيرًا من المتابعين. 1-5: خبر عادي أو محلي صغير أو تفصيلة فنية أو شائعة ضعيفة. كن صارمًا: الأغلبية تحت 6.\n"
+        "- المنشور سينشر الآن؛ لو الخبر قديم (مضى عليه أكثر من ساعتين حسب المقال) أو لا جديد فيه فضع skip=true.\n\n"
+        'أخرج JSON فقط، مصفوفة عناصرها: {"id": "...", "skip": false, "text": "...", "topic": "...", "importance": 7}\n\n'
         "الأخبار:\n\n" + "\n\n".join(blocks) + recent_block
     )
 
@@ -613,6 +631,31 @@ def pick_card_size(st):
     recent.append(size)
     del recent[:-6]
     return size
+
+
+def duplicate_of_recent(text, topic, st):
+    """Headline of an earlier post (last 48h) that covers the same event, else None. Compares the Arabic text itself and Gemini's English
+    'topic' key, so the same story from an English and an Arabic source is caught too."""
+    cut = (utcnow() - dt.timedelta(hours=48)).isoformat()
+    tk, tt = tokens(text), tokens(topic or "")
+    for p in st.get("recent_posts", []):
+        if p.get("ts", "") < cut:
+            continue
+        if jaccard(tk, set(p.get("tok", []))) >= S.get("dup_text_jaccard", 0.4):
+            return p.get("headline", "")
+        pt = tokens(p.get("topic") or "")
+        if tt and pt and len(tt & pt) >= 2 and jaccard(tt, pt) >= 0.5:
+            return p.get("headline", "")
+    return None
+
+
+def remember_post(st, text, topic):
+    st.setdefault("recent_posts", []).append({
+        "ts": utcnow().isoformat(),
+        "headline": text.strip().split("\n")[0][:120],
+        "topic": (topic or "")[:80],
+        "tok": sorted(tokens(text))[:70],
+    })
 
 
 def want_photo(st):
@@ -954,7 +997,7 @@ def main():
         return
 
     pool = select(ranked, S.get("candidate_pool", 12))
-    chosen = fill_articles(pool, st, dry)[: n + 2]  # spares in case Gemini skips some / no photo is found
+    chosen = fill_articles(pool, st, dry)[: n + S.get("spare_candidates", 4)]  # spares: Gemini may skip some (minor / duplicate), and a story with no photo is skipped (no cards)
     if not chosen:
         print("no candidate with readable full text")
         if not dry:
@@ -963,7 +1006,7 @@ def main():
     for it, stl in zip(chosen, pick_styles(len(chosen))):
         it["style"] = stl
     try:
-        written = write_posts(chosen, st["recent_headlines"][-25:])
+        written = write_posts(chosen, [f'{p["headline"]} (topic: {p.get("topic", "")})' for p in st["recent_posts"][-40:]] or st["recent_headlines"][-25:])
     except GeminiQuotaError as e:
         # nothing was marked as seen, so these stories are tried again in the next run (10 minutes later)
         print(f"::warning::Gemini quota exhausted on all keys/models ({e}); will retry next run")
@@ -989,6 +1032,20 @@ def main():
         text = sanitize(res["text"])
         if not valid_text(text):
             print(f"skipped (text invalid after cleanup): {it['title'][:70]}")
+            continue
+        try:
+            imp = float(res.get("importance"))
+        except (TypeError, ValueError):
+            imp = None
+        min_imp = P.get("min_importance", 6)
+        if it.get("tier1"):
+            min_imp = min(min_imp, 4)  # core subjects (Ahly, Zamalek, Barcelona, Salah...) need a lower bar
+        if imp is not None and imp < min_imp:
+            print(f"skipped (importance {imp:g} < {min_imp}): {it['title'][:70]}")
+            continue
+        dup = duplicate_of_recent(text, res.get("topic"), st)
+        if dup:
+            print(f"skipped (already posted: '{dup[:50]}'): {it['title'][:70]}")
             continue
         img = None
         ai = IMG.get("article_images") or {}
@@ -1059,6 +1116,7 @@ def main():
             st["recent_images"].append(img["title"])
         st["recent_titles"].append(sorted(it["tok"]))
         st["recent_headlines"].append(it["title"])
+        remember_post(st, text, res.get("topic"))
         st.setdefault("recent_stars", []).append(it.get("star"))
         del st["recent_stars"][:-12]
         st["posts"][today] = st["posts"].get(today, 0) + 1

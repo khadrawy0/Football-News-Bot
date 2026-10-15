@@ -65,7 +65,10 @@ def verify(jpg, headline, summary, vision_fn):
             "graphic, a logo or an unrelated scene.\n"
             "fits = nothing in the photo contradicts the story (e.g. kits/crests of a clearly different club than the one the story is about, "
             "or a different sport).\n"
-            "clean = no ad, betting banner, watermark of another site, collage, screenshot or heavy text overlay."
+            "clean = no ad, betting banner, watermark of another site, collage, screenshot or heavy text overlay.\n"
+            "good = a photo a big football page would be proud to post: sharp (not blurry or pixelated), well framed with the main subject "
+            "clearly visible (not cut at an odd place, not a tiny figure far away), decent lighting, not a stock-looking graphic or a screenshot "
+            "of a video/TV broadcast."
         )},
         {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}},
     ]
@@ -73,7 +76,7 @@ def verify(jpg, headline, summary, vision_fn):
         res = vision_fn(parts)
         if isinstance(res, list):
             res = res[0] if res else {}
-        ok = bool(res.get("football", True)) and bool(res.get("fits", True)) and bool(res.get("clean", True))
+        ok = bool(res.get("football", True)) and bool(res.get("fits", True)) and bool(res.get("clean", True)) and bool(res.get("good", True))
         return ok, str(res.get("reason", ""))[:120]
     except Exception as e:
         return True, f"unchecked ({type(e).__name__})"

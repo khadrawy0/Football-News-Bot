@@ -1,7 +1,7 @@
 settings:
   daily_cap: 60                  # max posts per Cairo day
   max_posts_per_run: 1           # one new story per run (runs happen every 10 minutes)
-  max_age_hours: 12              # ignore news older than this
+  max_age_hours: 2               # ignore news older than this (hours): only fresh news is posted
   quiet_hours_cairo: [0, 9]      # no posting from 00:00 to 08:59 Cairo time (keep the same window in the cron-job.org schedule)
   delay_between_posts_sec: [20, 60]
   # models are tried in this order; for each model every key is tried. Quota is per Google project AND per model,
@@ -12,6 +12,8 @@ settings:
   gemini_fallback_model: gemini-2.5-flash-lite
   graph_version: v23.0           # check developers.facebook.com for the current version
 
+  spare_candidates: 4            # extra stories written per run, in case some are skipped (minor / duplicate / no photo)
+  dup_text_jaccard: 0.4          # a new post this similar (Arabic text tokens) to a post of the last 48h is skipped
   candidate_pool: 12             # stories whose full article we try to fetch each run
   min_article_chars: 350         # skip stories whose article text is shorter (paywall / blocked)
   min_post_chars: 200            # a post must be at least this long (it is the full news)
@@ -103,6 +105,64 @@ settings:
 # Always-covered topics: stories that mention these names are pushed to the top of the queue,
 # and stories reported by many outlets at once ("buzz") are pushed up as well.
 priority:
+  require_popular: true  # a story must have an audience to be posted: core subjects (tier1), stars, big clubs (popular_extra), or >= popular_min_sources outlets
+  popular_min_sources: 3
+  min_importance: 6      # Gemini rates each story 1-10 for the Egyptian/Arab audience; below this it is skipped (tier1 stories need only 4)
+  tier1_boost: 5         # core subjects of the page: big score bonus
+  tier1:
+    - الأهلي
+    - Al Ahly
+    - الزمالك
+    - Zamalek
+    - برشلونة
+    - Barcelona
+    - Barca
+    - محمد صلاح
+    - Mohamed Salah
+    - Mo Salah
+    - Salah
+    - مرموش
+    - عمر مرموش
+    - Marmoush
+    - حمزة عبد الكريم
+    - Hamza Abdelkarim
+    - Hamza Abdel Karim
+    - المنتخب المصري
+    - منتخب مصر
+    - Egypt national team
+    - الفراعنة
+  popular_extra:         # pass the popularity gate (no score bonus)
+    - ريال مدريد
+    - Real Madrid
+    - ليفربول
+    - Liverpool
+    - مانشستر سيتي
+    - Manchester City
+    - مانشستر يونايتد
+    - Manchester United
+    - أرسنال
+    - Arsenal
+    - تشيلسي
+    - Chelsea
+    - بايرن ميونخ
+    - Bayern
+    - باريس سان جيرمان
+    - Paris Saint-Germain
+    - PSG
+    - أتلتيكو مدريد
+    - إنتر ميلان
+    - يوفنتوس
+    - ميلان
+    - بيراميدز
+    - Pyramids FC
+    - النصر
+    - الهلال
+    - Al Nassr
+    - Al Hilal
+    - دوري أبطال أوروبا
+    - Champions League
+    - كأس العالم
+    - World Cup
   star_boost: 1.5        # small nudge for a story that mentions a star below (not a takeover)
   star_window: 6         # look at the last 6 posts...
   star_max_in_window: 2  # ...and give no nudge when 2 of them were already star stories (keeps the page varied)
@@ -240,12 +300,12 @@ fixtures:
 # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
   card_sizes: {portrait: 3, landscape: 2}   # headline cards: portrait = big 4:5 (1080x1350), landscape = classic (1200x630); numbers = how often. Never the same size 3 times in a row
-  photo_share: 0.8                  # target share of posts with a real photo (70-80% wanted); the rest = headline cards. Photos not found fall back to a card, the bot corrects itself over the last 20 posts
-  cards_only: false                 # true = every post gets a headline card (6 designs...) and no photo is used at all; false = real photos (see article_images)
+  photo_share: 1.0                  # target share of posts with a real photo (70-80% wanted); the rest = headline cards. Photos not found fall back to a card, the bot corrects itself over the last 20 posts
+  cards_only: false                 # no cards: every news post carries a real photo (a story without a usable photo is skipped)
   # The photo of every post = the lead photo of the source article. Needs cards_only: false.
   article_images:
     enabled: true
-    fallback: card             # when the article has no usable photo: card = headline card | commons = stock-photo search (the older method below) | skip = don't publish the story
+    fallback: skip             # no usable photo = skip the story (no headline cards for news posts)
     credit: true               # last line of the post: 📷 الصورة: <publisher>
     credit_prefix: "الصورة:"
     skip_agencies: false        # skip photos credited to Getty / Reuters / AP / AFP / PA / Shutterstock / Alamy ... (the agencies that enforce their rights; most big outlets use them)
@@ -253,14 +313,14 @@ images:
     max_age_days: 21           # skip photos whose URL carries an older /YYYY/MM/ date (stale archive photos)
     skip_hosts: []             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
     brand_mark: true           # small "شيكس" badge in the corner of the photo
-    min_width: 700             # Arabic sites publish their lead photo at 750x450
-    min_height: 400
+    min_width: 800             # quality first: smaller photos look soft on a phone
+    min_height: 450
     max_side: 1600
     max_candidates: 6
     other_outlets: 5           # no usable photo at the lead outlet -> try the photos of up to 5 other outlets covering the SAME story
     search_other_outlets: true # find those outlets by searching Google News with the headline's key words (the feeds alone rarely list a 2nd outlet)
   enabled: true
-  no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
+  no_image_policy: skip              # never post a card or a text-only post for news
   archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)
   allow_attribution_licenses: true   # CC BY / CC BY-SA photos need a one-line photo credit; false = only public domain / CC0 (very few photos)
   vision_check: true                 # Gemini checks the shirt colours/crest and photo quality (it never identifies anyone by face)
