@@ -42,6 +42,7 @@ CFG = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
 S = CFG["settings"]
 DROPPED = Counter()
 SKIP_RE = [re.compile(p) for p in S.get("skip_title_patterns", [])]
+SKIP_URL_RE = [re.compile(p, re.I) for p in S.get("skip_url_patterns", [])]  # non-football sections of mixed feeds (Sky's boxing, F1...)
 IMG = CFG.get("images", {})
 
 
@@ -140,6 +141,8 @@ def fetch_source(src):
         if len(title) < 15 or not link:  # empty/garbled headlines waste a slot
             continue
         if any(p.search(title) for p in SKIP_RE):  # live blogs, streaming/TV listings
+            continue
+        if any(p.search(link) for p in SKIP_URL_RE):  # boxing / F1 / tennis... links
             continue
         items.append(
             {
@@ -259,6 +262,12 @@ def rank(items, st):
             lead["score"] += P.get("statement_boost", 1.5)
             lead["statement"] = True
         lead["all_ids"] = [x["id"] for x in m]
+        seen_src = {lead["source"]}
+        lead["alts"] = []  # the same story at other outlets: their own photos are extra candidates
+        for x in sorted(m, key=lambda y: -y["weight"]):
+            if x["source"] not in seen_src and x is not lead:
+                seen_src.add(x["source"])
+                lead["alts"].append({"url": x["url"], "source": x["source"], "feed_imgs": x.get("feed_imgs") or []})
         ranked.append(lead)
     return sorted(ranked, key=lambda x: -x["score"])
 
@@ -606,6 +615,16 @@ def pick_card_size(st):
     return size
 
 
+def want_photo(st):
+    """True = try a real photo for this post, False = headline card. Steers the long-run share to images.photo_share (default 0.5)."""
+    share = float(IMG.get("photo_share", 0.5))
+    recent = st.setdefault("recent_kinds", [])
+    if len(recent) >= 6:  # drift correction: if photos ran ahead/behind the target, lean the other way
+        actual = recent.count("photo") / len(recent)
+        share = min(1.0, max(0.1, share + 1.5 * (share - actual)))
+    return random.random() < share
+
+
 def photo_credit_line(img):
     if img.get("kind") == "card":
         return ""
@@ -649,6 +668,19 @@ def fill_articles(pool, st, dry):
     return ok
 
 
+def load_alts(it, limit):
+    """Fetch the pages of the same story at other outlets (only when the lead article has no usable photo) -> it["alt_pages"]."""
+    if "alt_pages" in it:
+        return
+    alts = (it.get("alts") or [])[:limit]
+    with cf.ThreadPoolExecutor(max_workers=4) as ex:
+        pages = list(ex.map(lambda a: articles.fetch_article(a["url"], 0), alts))
+    it["alt_pages"] = [
+        {"source": a["source"], "img_cands": pg["images"], "agency": pg["agency"], "feed_imgs": a["feed_imgs"]}
+        for a, pg in zip(alts, pages) if pg
+    ] + [{"source": a["source"], "img_cands": [], "agency": False, "feed_imgs": a["feed_imgs"]} for a, pg in zip(alts, pages) if not pg and a["feed_imgs"]]
+
+
 def parse_image_line(line):
     """'Person|Team' | 'match:A|B' | 'team:X' | 'venue:X' | 'competition:X'"""
     low = line.lower()
@@ -676,7 +708,12 @@ def check_article_images():
         print("=" * 60, f"\n{it['source']}: {it['title'][:90]}")
         print(f"  page: {it.get('page_url', '')[:110]}\n  candidates: {len(it.get('img_cands') or [])} | feed thumbnails: {len(it.get('feed_imgs') or [])}"
               f" | credited to an agency: {it.get('img_agency')}")
-        img = articleimg.pick(it, st["recent_images"], ai)
+        vf = vision_call if (ai.get("verify", True) and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY"))) else None
+        img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf)
+        if img is None and ai.get("other_outlets", 3):
+            print(f"  lead article has no usable photo -> trying {len(it.get('alts') or [])} other outlet(s) with the same story")
+            load_alts(it, ai.get("other_outlets", 3))
+            img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf, use_alts=True)
         if img:
             got += 1
             print(f"  RESULT: photo saved: {save_preview(img, i)}  | credit line: {photo_credit_line(img) or '(none)'}")
@@ -915,8 +952,14 @@ def main():
         img = None
         ai = IMG.get("article_images") or {}
         use_cards = os.environ.get("CARDS_ONLY") == "1" or IMG.get("cards_only")
+        if not use_cards and ai.get("enabled") and not want_photo(st):
+            use_cards = True  # this post is a card by the 50/50 mix
         if not use_cards and ai.get("enabled"):
-            img = articleimg.pick(it, st["recent_images"], ai)  # the lead photo of the source article
+            vf = vision_call if (ai.get("verify", True) and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY"))) else None
+            img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf)  # the lead photo of the source article
+            if img is None and ai.get("other_outlets", 3):
+                load_alts(it, ai.get("other_outlets", 3))
+                img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf, use_alts=True)  # same story, other outlets
             if img is None:
                 fb = ai.get("fallback", "card")
                 if fb == "skip":
@@ -968,6 +1011,9 @@ def main():
         except Exception as e:
             print(f"::warning::{e}", file=sys.stderr)
             continue
+        kinds = st.setdefault("recent_kinds", [])
+        kinds.append("card" if (not img or img.get("kind") == "card") else "photo")
+        del kinds[:-20]
         if img and img.get("kind") != "card":
             st["recent_images"].append(img["title"])
         st["recent_titles"].append(sorted(it["tok"]))

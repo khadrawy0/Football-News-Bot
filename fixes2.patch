@@ -1,0 +1,352 @@
+diff --git a/articleimg.py b/articleimg.py
+index 139c5f1..0a1d96f 100644
+--- a/articleimg.py
++++ b/articleimg.py
+@@ -5,6 +5,8 @@ placeholders / tiny images / photos credited to the big photo agencies / photos
+ the range Facebook shows without cutting it (4:5 .. 1.91:1), shrink it, and put a small brand badge in the corner.
+ Returns None when nothing usable is found, and the caller falls back (headline card by default).
+ """
++import base64
++import datetime as dt
+ import hashlib
+ import io
+ import re
+@@ -31,6 +33,50 @@ BAD_URL = re.compile(
+     re.I,
+ )
+ MAX_BYTES = 12_000_000
++URL_DATE = re.compile(r"/(20\d{2})[/_-](0?[1-9]|1[0-2])(?:[/_-](0?[1-9]|[12]\d|3[01]))?/")
++
++
++def url_age_days(url):
++    """Age in days when the image URL carries a /YYYY/MM/ (/DD/) date (most CMSs do), else None."""
++    m = URL_DATE.search(url)
++    if not m:
++        return None
++    try:
++        d = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3) or 15))
++    except ValueError:
++        return None
++    return (dt.date.today() - d).days
++
++
++def verify(jpg, headline, summary, vision_fn):
++    """Does this photo fit the story? -> (ok, reason). Gemini looks at kit colours / setting / text only, never at faces.
++    A failing vision call (quota) returns (True, 'unchecked'): the photo is the article's own lead photo, so it is a good fit anyway."""
++    small = Image.open(io.BytesIO(jpg)).convert("RGB")
++    small.thumbnail((768, 768))
++    buf = io.BytesIO()
++    small.save(buf, "JPEG", quality=80)
++    parts = [
++        {"text": (
++            "You screen a photo for a football news post. Do NOT identify anyone from their face; judge only clothing/kit colours, "
++            "setting, visible text and image quality.\n"
++            f"Story headline: {headline}\nStory summary: {summary[:400]}\n"
++            'Return JSON: {"football": bool, "fits": bool, "clean": bool, "reason": "short"}.\n'
++            "football = the photo shows football (players, match, stadium, training, coach, fans, trophy) and not another sport, a studio "
++            "graphic, a logo or an unrelated scene.\n"
++            "fits = nothing in the photo contradicts the story (e.g. kits/crests of a clearly different club than the one the story is about, "
++            "or a different sport).\n"
++            "clean = no ad, betting banner, watermark of another site, collage, screenshot or heavy text overlay."
++        )},
++        {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}},
++    ]
++    try:
++        res = vision_fn(parts)
++        if isinstance(res, list):
++            res = res[0] if res else {}
++        ok = bool(res.get("football", True)) and bool(res.get("fits", True)) and bool(res.get("clean", True))
++        return ok, str(res.get("reason", ""))[:120]
++    except Exception as e:
++        return True, f"unchecked ({type(e).__name__})"
+ 
+ 
+ def _download(url):
+@@ -79,7 +125,7 @@ def _mark(im, brand):
+     return Image.alpha_composite(im.convert("RGBA"), layer).convert("RGB")
+ 
+ 
+-def process(raw, cfg, brand):
++def process(raw, cfg, brand, mark=True):
+     """raw bytes -> JPEG bytes ready to post, or None when the photo is unusable."""
+     im = Image.open(io.BytesIO(raw))
+     im.load()
+@@ -94,7 +140,7 @@ def process(raw, cfg, brand):
+     if max(im.size) > longest:
+         k = longest / max(im.size)
+         im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
+-    if cfg.get("brand_mark", True):
++    if mark and cfg.get("brand_mark", True):
+         try:
+             im = _mark(im, brand)
+         except Exception as e:  # a failing badge must never cost the post its photo
+@@ -104,38 +150,66 @@ def process(raw, cfg, brand):
+     return out.getvalue()
+ 
+ 
+-def pick(item, recent, cfg, brand="شيكس", verbose=True):
+-    """Best usable photo for this story -> image dict (kind 'article'), or None."""
++def pick(item, recent, cfg, brand="شيكس", verbose=True, vision_fn=None, use_alts=False):
++    """Best usable photo for this story -> image dict (kind 'article'), or None.
++    use_alts=False: the lead article's photos. use_alts=True: photos of the same story at other outlets (item["alt_pages"]).
++    All downloadable candidates are compared and the highest-resolution one is tried first (then the next...) until the vision check passes."""
+ 
+     def say(msg):
+         if verbose:
+             print(f"[article-image] {msg}")
+ 
+-    if cfg.get("skip_agencies", True) and item.get("img_agency"):
+-        say(f"skipped (photo credited to a photo agency): {item['title'][:60]}")
+-        return None
+-    cands = list(item.get("img_cands") or []) + [u for u in (item.get("feed_imgs") or []) if u not in (item.get("img_cands") or [])]
+-    for url in cands[: cfg.get("max_candidates", 5)]:
+-        key = hashlib.sha1(url.encode()).hexdigest()[:16]
+-        if key in recent:
+-            say(f"skip (used recently): {url[:90]}")
+-            continue
+-        host = urlparse(url).netloc.lower()
+-        if any(h.lower() in host for h in cfg.get("skip_hosts") or []):
+-            say(f"skip (host in skip_hosts): {url[:90]}")
+-            continue
+-        if BAD_URL.search(url):
+-            say(f"skip (logo/placeholder-like url): {url[:90]}")
+-            continue
+-        try:
+-            jpg = process(_download(url), cfg, brand)
+-        except Exception as e:
+-            say(f"skip ({e}): {url[:90]}")
+-            continue
+-        if jpg is None:
+-            say(f"skip (too small / odd shape): {url[:90]}")
++    if use_alts:
++        sources = [(p.get("source", ""), p.get("agency"), list(p.get("img_cands") or []) + list(p.get("feed_imgs") or []))
++                   for p in item.get("alt_pages") or []]
++    else:
++        lead = list(item.get("img_cands") or [])
++        sources = [(item.get("source", ""), item.get("img_agency"), lead + [u for u in (item.get("feed_imgs") or []) if u not in lead])]
++    found = []  # (pixels, credit, url, jpg_plain, jpg_final)
++    tried = set()
++    for credit, agency, cands in sources:
++        if cfg.get("skip_agencies", True) and agency:
++            say(f"skipped (photo credited to a photo agency) [{credit}]: {item['title'][:50]}")
+             continue
+-        say(f"OK {url[:100]}")
+-        return {"bytes": jpg, "mime": "image/jpeg", "title": key, "page": url, "license": "article photo",
+-                "credit_core": item.get("source", ""), "kind": "article"}
++        for url in cands[: cfg.get("max_candidates", 6)]:
++            key = hashlib.sha1(url.encode()).hexdigest()[:16]
++            if url in tried:
++                continue
++            tried.add(url)
++            if key in recent:
++                say(f"skip (used recently): {url[:90]}")
++                continue
++            host = urlparse(url).netloc.lower()
++            if any(h.lower() in host for h in cfg.get("skip_hosts") or []):
++                say(f"skip (host in skip_hosts): {url[:90]}")
++                continue
++            if BAD_URL.search(url):
++                say(f"skip (logo/placeholder-like url): {url[:90]}")
++                continue
++            age = url_age_days(url)
++            if age is not None and age > cfg.get("max_age_days", 21):
++                say(f"skip (old photo, ~{age} days by its URL date): {url[:90]}")
++                continue
++            try:
++                raw = _download(url)
++                plain = process(raw, cfg, brand, mark=False)
++                final = process(raw, cfg, brand) if plain else None
++            except Exception as e:
++                say(f"skip ({e}): {url[:90]}")
++                continue
++            if final is None:
++                say(f"skip (too small / odd shape): {url[:90]}")
++                continue
++            px = Image.open(io.BytesIO(plain)).size
++            found.append((px[0] * px[1], credit, url, plain, final, key))
++    found.sort(key=lambda x: -x[0])
++    for _px, credit, url, plain, final, key in found:
++        if vision_fn and cfg.get("verify", True):
++            ok, why = verify(plain, item["title"], item.get("summary", ""), vision_fn)
++            say(f"vision check: {'FITS' if ok else 'REJECTED'} - {why} | {url[:70]}")
++            if not ok:
++                continue
++        say(f"OK ({_px // 1000}k px) {url[:100]}")
++        return {"bytes": final, "mime": "image/jpeg", "title": key, "page": url, "license": "article photo",
++                "credit_core": credit, "kind": "article"}
+     return None
+diff --git a/articles.py b/articles.py
+index 41635ed..b009534 100644
+--- a/articles.py
++++ b/articles.py
+@@ -76,6 +76,18 @@ def page_images(doc, base):
+                 if key in node:
+                     for u in _image_urls(node[key]):
+                         add(u)
++    # photos inside the article body (figure/picture/img): the biggest srcset entry of each, in page order
++    for img in doc.xpath("//article//img | //main//img | //figure//img")[:40]:
++        cands = []
++        for ss in (img.get("srcset") or img.get("data-srcset") or "").split(","):
++            parts = ss.strip().split()
++            if parts:
++                w = int(re.sub(r"\D", "", parts[1]) or 0) if len(parts) > 1 else 0
++                cands.append((w, parts[0]))
++        if cands:
++            add(max(cands)[1])
++        else:
++            add(img.get("data-src") or img.get("data-original") or img.get("src"))
+     return out
+ 
+ 
+diff --git a/config.yaml b/config.yaml
+index 0a0b3d7..d11278d 100644
+--- a/config.yaml
++++ b/config.yaml
+@@ -17,6 +17,8 @@ settings:
+   min_post_chars: 200            # a post must be at least this long (it is the full news)
+ 
+   # Titles matching any regex are dropped (live blogs, streaming/TV listings)
++  skip_url_patterns:           # links containing these are not football (Sky's general feed carries boxing, F1, cricket...)
++    - '/(boxing|f1|formula-?1|cricket|rugby-(union|league)|golf|tennis|nfl|nba|darts|snooker|cycling|motorsport|netball|mma|ufc|wwe|athletics)/'
+   skip_title_patterns:
+     - '(?i)(^|[–\-|:])\s*live\b'
+     - '(?i)\blive (blog|updates|score|stream|coverage|text)'
+@@ -238,6 +240,7 @@ fixtures:
+ # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
+ images:
+   card_sizes: {portrait: 3, landscape: 2}   # headline cards: portrait = big 4:5 (1080x1350), landscape = classic (1200x630); numbers = how often. Never the same size 3 times in a row
++  photo_share: 0.8                  # target share of posts with a real photo (70-80% wanted); the rest = headline cards. Photos not found fall back to a card, the bot corrects itself over the last 20 posts
+   cards_only: false                 # true = every post gets a headline card (6 designs...) and no photo is used at all; false = real photos (see article_images)
+   # The photo of every post = the lead photo of the source article. Needs cards_only: false.
+   article_images:
+@@ -246,12 +249,15 @@ images:
+     credit: true               # last line of the post: 📷 الصورة: <publisher>
+     credit_prefix: "الصورة:"
+     skip_agencies: true        # skip photos credited to Getty / Reuters / AP / AFP / PA / Shutterstock / Alamy ... (the agencies that enforce their rights; most big outlets use them)
+-    skip_hosts: []             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
++    verify: true               # Gemini vision checks each photo fits the story (football, no other sport/ad/watermark); never identifies faces. A quota failure accepts the photo
++    max_age_days: 21           # skip photos whose URL carries an older /YYYY/MM/ date (stale archive photos)
++    skip_hosts: [ichef.bbci.co.uk, e0.365dm.com]             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
+     brand_mark: true           # small "شيكس" badge in the corner of the photo
+-    min_width: 800
+-    min_height: 450
++    min_width: 700             # Arabic sites publish their lead photo at 750x450
++    min_height: 400
+     max_side: 1600
+-    max_candidates: 5
++    max_candidates: 6
++    other_outlets: 3           # no usable photo at the lead outlet -> try the photos of up to 3 other outlets covering the SAME story
+   enabled: true
+   no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
+   archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)
+diff --git a/main.py b/main.py
+index cbbe824..93b7553 100644
+--- a/main.py
++++ b/main.py
+@@ -42,6 +42,7 @@ CFG = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+ S = CFG["settings"]
+ DROPPED = Counter()
+ SKIP_RE = [re.compile(p) for p in S.get("skip_title_patterns", [])]
++SKIP_URL_RE = [re.compile(p, re.I) for p in S.get("skip_url_patterns", [])]  # non-football sections of mixed feeds (Sky's boxing, F1...)
+ IMG = CFG.get("images", {})
+ 
+ 
+@@ -141,6 +142,8 @@ def fetch_source(src):
+             continue
+         if any(p.search(title) for p in SKIP_RE):  # live blogs, streaming/TV listings
+             continue
++        if any(p.search(link) for p in SKIP_URL_RE):  # boxing / F1 / tennis... links
++            continue
+         items.append(
+             {
+                 "id": hashlib.sha1((link or title).encode()).hexdigest()[:16],
+@@ -259,6 +262,12 @@ def rank(items, st):
+             lead["score"] += P.get("statement_boost", 1.5)
+             lead["statement"] = True
+         lead["all_ids"] = [x["id"] for x in m]
++        seen_src = {lead["source"]}
++        lead["alts"] = []  # the same story at other outlets: their own photos are extra candidates
++        for x in sorted(m, key=lambda y: -y["weight"]):
++            if x["source"] not in seen_src and x is not lead:
++                seen_src.add(x["source"])
++                lead["alts"].append({"url": x["url"], "source": x["source"], "feed_imgs": x.get("feed_imgs") or []})
+         ranked.append(lead)
+     return sorted(ranked, key=lambda x: -x["score"])
+ 
+@@ -606,6 +615,16 @@ def pick_card_size(st):
+     return size
+ 
+ 
++def want_photo(st):
++    """True = try a real photo for this post, False = headline card. Steers the long-run share to images.photo_share (default 0.5)."""
++    share = float(IMG.get("photo_share", 0.5))
++    recent = st.setdefault("recent_kinds", [])
++    if len(recent) >= 6:  # drift correction: if photos ran ahead/behind the target, lean the other way
++        actual = recent.count("photo") / len(recent)
++        share = min(1.0, max(0.1, share + 1.5 * (share - actual)))
++    return random.random() < share
++
++
+ def photo_credit_line(img):
+     if img.get("kind") == "card":
+         return ""
+@@ -649,6 +668,19 @@ def fill_articles(pool, st, dry):
+     return ok
+ 
+ 
++def load_alts(it, limit):
++    """Fetch the pages of the same story at other outlets (only when the lead article has no usable photo) -> it["alt_pages"]."""
++    if "alt_pages" in it:
++        return
++    alts = (it.get("alts") or [])[:limit]
++    with cf.ThreadPoolExecutor(max_workers=4) as ex:
++        pages = list(ex.map(lambda a: articles.fetch_article(a["url"], 0), alts))
++    it["alt_pages"] = [
++        {"source": a["source"], "img_cands": pg["images"], "agency": pg["agency"], "feed_imgs": a["feed_imgs"]}
++        for a, pg in zip(alts, pages) if pg
++    ] + [{"source": a["source"], "img_cands": [], "agency": False, "feed_imgs": a["feed_imgs"]} for a, pg in zip(alts, pages) if not pg and a["feed_imgs"]]
++
++
+ def parse_image_line(line):
+     """'Person|Team' | 'match:A|B' | 'team:X' | 'venue:X' | 'competition:X'"""
+     low = line.lower()
+@@ -676,7 +708,12 @@ def check_article_images():
+         print("=" * 60, f"\n{it['source']}: {it['title'][:90]}")
+         print(f"  page: {it.get('page_url', '')[:110]}\n  candidates: {len(it.get('img_cands') or [])} | feed thumbnails: {len(it.get('feed_imgs') or [])}"
+               f" | credited to an agency: {it.get('img_agency')}")
+-        img = articleimg.pick(it, st["recent_images"], ai)
++        vf = vision_call if (ai.get("verify", True) and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY"))) else None
++        img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf)
++        if img is None and ai.get("other_outlets", 3):
++            print(f"  lead article has no usable photo -> trying {len(it.get('alts') or [])} other outlet(s) with the same story")
++            load_alts(it, ai.get("other_outlets", 3))
++            img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf, use_alts=True)
+         if img:
+             got += 1
+             print(f"  RESULT: photo saved: {save_preview(img, i)}  | credit line: {photo_credit_line(img) or '(none)'}")
+@@ -915,8 +952,14 @@ def main():
+         img = None
+         ai = IMG.get("article_images") or {}
+         use_cards = os.environ.get("CARDS_ONLY") == "1" or IMG.get("cards_only")
++        if not use_cards and ai.get("enabled") and not want_photo(st):
++            use_cards = True  # this post is a card by the 50/50 mix
+         if not use_cards and ai.get("enabled"):
+-            img = articleimg.pick(it, st["recent_images"], ai)  # the lead photo of the source article
++            vf = vision_call if (ai.get("verify", True) and (os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY"))) else None
++            img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf)  # the lead photo of the source article
++            if img is None and ai.get("other_outlets", 3):
++                load_alts(it, ai.get("other_outlets", 3))
++                img = articleimg.pick(it, st["recent_images"], ai, vision_fn=vf, use_alts=True)  # same story, other outlets
+             if img is None:
+                 fb = ai.get("fallback", "card")
+                 if fb == "skip":
+@@ -968,6 +1011,9 @@ def main():
+         except Exception as e:
+             print(f"::warning::{e}", file=sys.stderr)
+             continue
++        kinds = st.setdefault("recent_kinds", [])
++        kinds.append("card" if (not img or img.get("kind") == "card") else "photo")
++        del kinds[:-20]
+         if img and img.get("kind") != "card":
+             st["recent_images"].append(img["title"])
+         st["recent_titles"].append(sorted(it["tok"]))

@@ -5,6 +5,8 @@ placeholders / tiny images / photos credited to the big photo agencies / photos 
 the range Facebook shows without cutting it (4:5 .. 1.91:1), shrink it, and put a small brand badge in the corner.
 Returns None when nothing usable is found, and the caller falls back (headline card by default).
 """
+import base64
+import datetime as dt
 import hashlib
 import io
 import re
@@ -31,6 +33,50 @@ BAD_URL = re.compile(
     re.I,
 )
 MAX_BYTES = 12_000_000
+URL_DATE = re.compile(r"/(20\d{2})[/_-](0?[1-9]|1[0-2])(?:[/_-](0?[1-9]|[12]\d|3[01]))?/")
+
+
+def url_age_days(url):
+    """Age in days when the image URL carries a /YYYY/MM/ (/DD/) date (most CMSs do), else None."""
+    m = URL_DATE.search(url)
+    if not m:
+        return None
+    try:
+        d = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3) or 15))
+    except ValueError:
+        return None
+    return (dt.date.today() - d).days
+
+
+def verify(jpg, headline, summary, vision_fn):
+    """Does this photo fit the story? -> (ok, reason). Gemini looks at kit colours / setting / text only, never at faces.
+    A failing vision call (quota) returns (True, 'unchecked'): the photo is the article's own lead photo, so it is a good fit anyway."""
+    small = Image.open(io.BytesIO(jpg)).convert("RGB")
+    small.thumbnail((768, 768))
+    buf = io.BytesIO()
+    small.save(buf, "JPEG", quality=80)
+    parts = [
+        {"text": (
+            "You screen a photo for a football news post. Do NOT identify anyone from their face; judge only clothing/kit colours, "
+            "setting, visible text and image quality.\n"
+            f"Story headline: {headline}\nStory summary: {summary[:400]}\n"
+            'Return JSON: {"football": bool, "fits": bool, "clean": bool, "reason": "short"}.\n'
+            "football = the photo shows football (players, match, stadium, training, coach, fans, trophy) and not another sport, a studio "
+            "graphic, a logo or an unrelated scene.\n"
+            "fits = nothing in the photo contradicts the story (e.g. kits/crests of a clearly different club than the one the story is about, "
+            "or a different sport).\n"
+            "clean = no ad, betting banner, watermark of another site, collage, screenshot or heavy text overlay."
+        )},
+        {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}},
+    ]
+    try:
+        res = vision_fn(parts)
+        if isinstance(res, list):
+            res = res[0] if res else {}
+        ok = bool(res.get("football", True)) and bool(res.get("fits", True)) and bool(res.get("clean", True))
+        return ok, str(res.get("reason", ""))[:120]
+    except Exception as e:
+        return True, f"unchecked ({type(e).__name__})"
 
 
 def _download(url):
@@ -79,7 +125,7 @@ def _mark(im, brand):
     return Image.alpha_composite(im.convert("RGBA"), layer).convert("RGB")
 
 
-def process(raw, cfg, brand):
+def process(raw, cfg, brand, mark=True):
     """raw bytes -> JPEG bytes ready to post, or None when the photo is unusable."""
     im = Image.open(io.BytesIO(raw))
     im.load()
@@ -94,7 +140,7 @@ def process(raw, cfg, brand):
     if max(im.size) > longest:
         k = longest / max(im.size)
         im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
-    if cfg.get("brand_mark", True):
+    if mark and cfg.get("brand_mark", True):
         try:
             im = _mark(im, brand)
         except Exception as e:  # a failing badge must never cost the post its photo
@@ -104,38 +150,66 @@ def process(raw, cfg, brand):
     return out.getvalue()
 
 
-def pick(item, recent, cfg, brand="شيكس", verbose=True):
-    """Best usable photo for this story -> image dict (kind 'article'), or None."""
+def pick(item, recent, cfg, brand="شيكس", verbose=True, vision_fn=None, use_alts=False):
+    """Best usable photo for this story -> image dict (kind 'article'), or None.
+    use_alts=False: the lead article's photos. use_alts=True: photos of the same story at other outlets (item["alt_pages"]).
+    All downloadable candidates are compared and the highest-resolution one is tried first (then the next...) until the vision check passes."""
 
     def say(msg):
         if verbose:
             print(f"[article-image] {msg}")
 
-    if cfg.get("skip_agencies", True) and item.get("img_agency"):
-        say(f"skipped (photo credited to a photo agency): {item['title'][:60]}")
-        return None
-    cands = list(item.get("img_cands") or []) + [u for u in (item.get("feed_imgs") or []) if u not in (item.get("img_cands") or [])]
-    for url in cands[: cfg.get("max_candidates", 5)]:
-        key = hashlib.sha1(url.encode()).hexdigest()[:16]
-        if key in recent:
-            say(f"skip (used recently): {url[:90]}")
+    if use_alts:
+        sources = [(p.get("source", ""), p.get("agency"), list(p.get("img_cands") or []) + list(p.get("feed_imgs") or []))
+                   for p in item.get("alt_pages") or []]
+    else:
+        lead = list(item.get("img_cands") or [])
+        sources = [(item.get("source", ""), item.get("img_agency"), lead + [u for u in (item.get("feed_imgs") or []) if u not in lead])]
+    found = []  # (pixels, credit, url, jpg_plain, jpg_final)
+    tried = set()
+    for credit, agency, cands in sources:
+        if cfg.get("skip_agencies", True) and agency:
+            say(f"skipped (photo credited to a photo agency) [{credit}]: {item['title'][:50]}")
             continue
-        host = urlparse(url).netloc.lower()
-        if any(h.lower() in host for h in cfg.get("skip_hosts") or []):
-            say(f"skip (host in skip_hosts): {url[:90]}")
-            continue
-        if BAD_URL.search(url):
-            say(f"skip (logo/placeholder-like url): {url[:90]}")
-            continue
-        try:
-            jpg = process(_download(url), cfg, brand)
-        except Exception as e:
-            say(f"skip ({e}): {url[:90]}")
-            continue
-        if jpg is None:
-            say(f"skip (too small / odd shape): {url[:90]}")
-            continue
-        say(f"OK {url[:100]}")
-        return {"bytes": jpg, "mime": "image/jpeg", "title": key, "page": url, "license": "article photo",
-                "credit_core": item.get("source", ""), "kind": "article"}
+        for url in cands[: cfg.get("max_candidates", 6)]:
+            key = hashlib.sha1(url.encode()).hexdigest()[:16]
+            if url in tried:
+                continue
+            tried.add(url)
+            if key in recent:
+                say(f"skip (used recently): {url[:90]}")
+                continue
+            host = urlparse(url).netloc.lower()
+            if any(h.lower() in host for h in cfg.get("skip_hosts") or []):
+                say(f"skip (host in skip_hosts): {url[:90]}")
+                continue
+            if BAD_URL.search(url):
+                say(f"skip (logo/placeholder-like url): {url[:90]}")
+                continue
+            age = url_age_days(url)
+            if age is not None and age > cfg.get("max_age_days", 21):
+                say(f"skip (old photo, ~{age} days by its URL date): {url[:90]}")
+                continue
+            try:
+                raw = _download(url)
+                plain = process(raw, cfg, brand, mark=False)
+                final = process(raw, cfg, brand) if plain else None
+            except Exception as e:
+                say(f"skip ({e}): {url[:90]}")
+                continue
+            if final is None:
+                say(f"skip (too small / odd shape): {url[:90]}")
+                continue
+            px = Image.open(io.BytesIO(plain)).size
+            found.append((px[0] * px[1], credit, url, plain, final, key))
+    found.sort(key=lambda x: -x[0])
+    for _px, credit, url, plain, final, key in found:
+        if vision_fn and cfg.get("verify", True):
+            ok, why = verify(plain, item["title"], item.get("summary", ""), vision_fn)
+            say(f"vision check: {'FITS' if ok else 'REJECTED'} - {why} | {url[:70]}")
+            if not ok:
+                continue
+        say(f"OK ({_px // 1000}k px) {url[:100]}")
+        return {"bytes": final, "mime": "image/jpeg", "title": key, "page": url, "license": "article photo",
+                "credit_core": credit, "kind": "article"}
     return None

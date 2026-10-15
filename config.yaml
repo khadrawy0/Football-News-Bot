@@ -17,6 +17,8 @@ settings:
   min_post_chars: 200            # a post must be at least this long (it is the full news)
 
   # Titles matching any regex are dropped (live blogs, streaming/TV listings)
+  skip_url_patterns:           # links containing these are not football (Sky's general feed carries boxing, F1, cricket...)
+    - '/(boxing|f1|formula-?1|cricket|rugby-(union|league)|golf|tennis|nfl|nba|darts|snooker|cycling|motorsport|netball|mma|ufc|wwe|athletics)/'
   skip_title_patterns:
     - '(?i)(^|[–\-|:])\s*live\b'
     - '(?i)\blive (blog|updates|score|stream|coverage|text)'
@@ -238,6 +240,7 @@ fixtures:
 # Photos come from Wikimedia Commons (CC0 / public domain / CC BY / CC BY-SA only); the fallback is a headline card
 images:
   card_sizes: {portrait: 3, landscape: 2}   # headline cards: portrait = big 4:5 (1080x1350), landscape = classic (1200x630); numbers = how often. Never the same size 3 times in a row
+  photo_share: 0.8                  # target share of posts with a real photo (70-80% wanted); the rest = headline cards. Photos not found fall back to a card, the bot corrects itself over the last 20 posts
   cards_only: false                 # true = every post gets a headline card (6 designs...) and no photo is used at all; false = real photos (see article_images)
   # The photo of every post = the lead photo of the source article. Needs cards_only: false.
   article_images:
@@ -246,12 +249,15 @@ images:
     credit: true               # last line of the post: 📷 الصورة: <publisher>
     credit_prefix: "الصورة:"
     skip_agencies: true        # skip photos credited to Getty / Reuters / AP / AFP / PA / Shutterstock / Alamy ... (the agencies that enforce their rights; most big outlets use them)
-    skip_hosts: []             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
+    verify: true               # Gemini vision checks each photo fits the story (football, no other sport/ad/watermark); never identifies faces. A quota failure accepts the photo
+    max_age_days: 21           # skip photos whose URL carries an older /YYYY/MM/ date (stale archive photos)
+    skip_hosts: [ichef.bbci.co.uk, e0.365dm.com]             # image hosts to never use, e.g. [ichef.bbci.co.uk, e0.365dm.com] = BBC and Sky photos (the page-level agency check cannot see credits that are not in the page markup)
     brand_mark: true           # small "شيكس" badge in the corner of the photo
-    min_width: 800
-    min_height: 450
+    min_width: 700             # Arabic sites publish their lead photo at 750x450
+    min_height: 400
     max_side: 1600
-    max_candidates: 5
+    max_candidates: 6
+    other_outlets: 3           # no usable photo at the lead outlet -> try the photos of up to 3 other outlets covering the SAME story
   enabled: true
   no_image_policy: card              # card = when no suitable real photo exists, post a headline card; skip = don't publish; text = text only
   archive_label: true                # adds "صورة أرشيفية" to the photo line so readers don't think the photo is from the event (not used on cards)

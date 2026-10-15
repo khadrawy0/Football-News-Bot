@@ -76,6 +76,18 @@ def page_images(doc, base):
                 if key in node:
                     for u in _image_urls(node[key]):
                         add(u)
+    # photos inside the article body (figure/picture/img): the biggest srcset entry of each, in page order
+    for img in doc.xpath("//article//img | //main//img | //figure//img")[:40]:
+        cands = []
+        for ss in (img.get("srcset") or img.get("data-srcset") or "").split(","):
+            parts = ss.strip().split()
+            if parts:
+                w = int(re.sub(r"\D", "", parts[1]) or 0) if len(parts) > 1 else 0
+                cands.append((w, parts[0]))
+        if cands:
+            add(max(cands)[1])
+        else:
+            add(img.get("data-src") or img.get("data-original") or img.get("src"))
     return out
 
 
