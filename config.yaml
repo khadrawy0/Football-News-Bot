@@ -299,6 +299,34 @@ sources:
   - {name: GNews - في الجول, url: "https://news.google.com/rss/search?q=site:filgoal.com+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   - {name: GNews - اليوم السابع رياضة, url: "https://news.google.com/rss/search?q=site:youm7.com+%D9%83%D8%B1%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
   - {name: GNews - كورة العالمية, url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D8%A5%D9%86%D8%AC%D9%84%D9%8A%D8%B2%D9%8A+%D8%A7%D9%84%D8%A5%D8%B3%D8%A8%D8%A7%D9%86%D9%8A+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 3, region: eg, gnews: true, attach_link: false}
+  # ---------- Official bodies, leagues and clubs (Google News restricted to their own site: fresh news + their own photos).
+  # trust: true = no publisher whitelist needed (the site: filter already limits the feed to that one domain).
+  # Google News may return nothing for a domain it does not index: run check_feeds and delete the lines that show BAD / items=0.
+  - {name: "GNews - الاتحاد المصري EFA", url: "https://news.google.com/rss/search?q=site:efa.com.eg+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: eg, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - الاتحاد الأفريقي CAF", url: "https://news.google.com/rss/search?q=site:cafonline.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 4, region: eg, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - الاتحاد السعودي SAFF", url: "https://news.google.com/rss/search?q=site:saff.com.sa+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - دوري روشن SPL", url: "https://news.google.com/rss/search?q=site:spl.com.sa+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - FIFA", url: "https://news.google.com/rss/search?q=site:fifa.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - UEFA", url: "https://news.google.com/rss/search?q=site:uefa.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - AFC", url: "https://news.google.com/rss/search?q=site:the-afc.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Premier League", url: "https://news.google.com/rss/search?q=site:premierleague.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Liverpool FC", url: "https://news.google.com/rss/search?q=site:liverpoolfc.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Real Madrid", url: "https://news.google.com/rss/search?q=site:realmadrid.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - FC Barcelona", url: "https://news.google.com/rss/search?q=site:fcbarcelona.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 3, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - LaLiga", url: "https://news.google.com/rss/search?q=site:laliga.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Bayern", url: "https://news.google.com/rss/search?q=site:fcbayern.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Bundesliga", url: "https://news.google.com/rss/search?q=site:bundesliga.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - PSG", url: "https://news.google.com/rss/search?q=site:psg.fr+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Inter", url: "https://news.google.com/rss/search?q=site:inter.it+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - AC Milan", url: "https://news.google.com/rss/search?q=site:acmilan.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Juventus", url: "https://news.google.com/rss/search?q=site:juventus.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Manchester City", url: "https://news.google.com/rss/search?q=site:mancity.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - Arsenal", url: "https://news.google.com/rss/search?q=site:arsenal.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  - {name: "GNews - MLS", url: "https://news.google.com/rss/search?q=site:mlssoccer.com+when:12h&hl=en&gl=US&ceid=US:en", weight: 2, region: intl, gnews: true, attach_link: false, trust: true}
+  # stage two: Morocco / Tunisia / MLS big stories (low weight: they surface only when covered widely)
+  - {name: "GNews - الدوري المغربي", url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D9%85%D8%BA%D8%B1%D8%A8%D9%8A+%D9%83%D8%B1%D8%A9+%D9%82%D8%AF%D9%85%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 2, region: eg, gnews: true, attach_link: false}
+  - {name: "GNews - الدوري التونسي", url: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AF%D9%88%D8%B1%D9%8A+%D8%A7%D9%84%D8%AA%D9%88%D9%86%D8%B3%D9%8A+%D9%83%D8%B1%D8%A9+%D9%82%D8%AF%D9%85%D8%A9+when:12h&hl=ar&gl=EG&ceid=EG:ar", weight: 2, region: eg, gnews: true, attach_link: false}
+
   # ---------- Stars / big stories (Google News) ----------
   - {name: GNews - Football breaking, url: "https://news.google.com/rss/search?q=football+breaking+news+OR+sacked+OR+injury+OR+official+when:6h&hl=en&gl=US&ceid=US:en", weight: 4, region: intl, gnews: true, attach_link: false}
   - {name: GNews - عاجل كرة القدم, url: "https://news.google.com/rss/search?q=%D8%B9%D8%A7%D8%AC%D9%84+%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+when:6h&hl=ar&gl=EG&ceid=EG:ar", weight: 4, region: eg, gnews: true, attach_link: false}

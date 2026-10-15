@@ -131,7 +131,7 @@ def fetch_source(src):
             pub = (e.get("source") or {}).get("title")
             title = re.sub(r"\s+[-–—|]\s+[^-–—|]+$", "", title)
             source_label = pub or src["name"].replace("GNews - ", "")
-            if TRUSTED and not is_trusted(source_label):
+            if TRUSTED and not src.get("trust") and not is_trusted(source_label):
                 DROPPED[source_label] += 1
                 continue
             summary = ""
