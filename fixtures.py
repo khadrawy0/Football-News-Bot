@@ -51,6 +51,7 @@ ALIASES = {
     "tottenham": ["spurs"],
     "bayern": ["fc bayern", "bayern munchen"],
     "inter": ["internazionale"],
+    "sporting cp": ["sporting lisbon", "sporting lisboa"],
 }
 
 
@@ -207,6 +208,10 @@ SOFA_RULES = [
     ("fifa.worldq.caf", None, r"(World Cup|WC).*Qual.*(CAF|Africa)"),
     ("fifa.worldq.uefa", None, r"(World Cup|WC).*Qual.*(UEFA|Europe)"),
     ("fifa.friendly", None, r"^(Friendly International|International Friendl)"),
+    ("tur.1", r"^(Turkey|T[uü]rkiye)$", r"S[uü]per Lig"),
+    ("por.1", r"^Portugal$", r"(Liga Portugal|Primeira Liga)"),
+    ("ned.1", r"^Netherlands$", r"^Eredivisie$"),
+    ("caf.nations", None, r"^Africa Cup of Nations$"),
 ]
 
 
@@ -282,6 +287,10 @@ TSDB_RULES = [
     ("fifa.world", r"^FIFA World Cup$"),
     ("uefa.nations", r"^UEFA Nations League$"),
     ("fifa.friendly", r"^International Friendlies$"),
+    ("tur.1", r"Turkish.*(Super|S[uü]per)"),
+    ("por.1", r"Portuguese.*(Primeira|Liga)"),
+    ("ned.1", r"Eredivisie"),
+    ("caf.nations", r"Africa Cup of Nations"),
 ]
 
 
@@ -398,14 +407,16 @@ def todays_matches(leagues, day, max_matches=30, providers=None, verbose=True, a
     return out[:max_matches]
 
 
-def group_for_card(matches, ar_names, time_fmt):
-    """-> [(competition_ar, [(home_ar, away_ar, time_str), ...]), ...] in display order."""
+def group_for_card(matches, ar_names, time_fmt, hot_names=None):
+    """-> [(competition_ar, [(home_ar, away_ar, time_str, hot), ...]), ...] in display order.
+    hot = the match involves one of `hot_names` (big-crowd clubs): the card marks those rows in gold."""
     groups, idx = [], {}
     for m in matches:
         if m["competition"] not in idx:
             idx[m["competition"]] = []
             groups.append((m["competition"], idx[m["competition"]]))
-        idx[m["competition"]].append((ar_names.get(m["home"], m["home"]), ar_names.get(m["away"], m["away"]), time_fmt(m["kickoff"])))
+        hot = bool(hot_names) and any(_involves(m, hot_names))
+        idx[m["competition"]].append((ar_names.get(m["home"], m["home"]), ar_names.get(m["away"], m["away"]), time_fmt(m["kickoff"]), hot))
     return groups
 
 
@@ -413,24 +424,38 @@ def team_names(matches):
     return sorted({n for m in matches for n in (m["home"], m["away"]) if n})
 
 
-def split_pages(groups, rows_per_card=9, max_cards=4):
-    """Spread the groups over as few, evenly filled cards as possible (a long competition may continue on the next card)."""
-    total = sum(len(ms) for _, ms in groups)
+def split_pages(groups, rows_per_card=11, max_cards=3, comp_weight=1.15):
+    """Spread the matches over as few, evenly filled cards as possible.
+    A card holds about `rows_per_card` units: one match = 1 unit, a competition heading = `comp_weight` units
+    (a long competition may continue, with its heading repeated, on the next card).
+    The target per card grows until everything fits in `max_cards`, so the last card is never the overloaded one."""
+    total = sum(comp_weight + len(ms) for _, ms in groups)
     if total == 0:
         return []
-    k = min(max_cards, max(1, -(-total // rows_per_card)))
-    per = -(-total // k)  # balanced target rows per card
-    pages, cur, n = [], [], 0
-    for comp, ms in groups:
-        ms = list(ms)
-        while ms:
-            room = per - n
-            take, ms = ms[:room], ms[room:]
-            cur.append((comp, take))
-            n += len(take)
-            if n >= per and len(pages) < k - 1:
-                pages.append(cur)
-                cur, n = [], 0
-    if cur:
-        pages.append(cur)
+    k0 = max(1, -(-int(total * 100) // int(rows_per_card * 100)))
+    k = min(max_cards, k0)
+
+    def fill(per):
+        pages, cur, w = [], [], 0.0
+        for comp, ms in groups:
+            for m in ms:
+                need = (comp_weight if not cur or cur[-1][0] != comp else 0.0) + 1
+                if cur and w + need > per + 0.01:
+                    pages.append(cur)
+                    cur, w = [], 0.0
+                    need = comp_weight + 1
+                if cur and cur[-1][0] == comp:
+                    cur[-1][1].append(m)
+                else:
+                    cur.append((comp, [m]))
+                w += need
+        if cur:
+            pages.append(cur)
+        return pages
+
+    per = total / k
+    pages = fill(per)
+    while len(pages) > k:  # headings repeated on a continued competition add weight: raise the target a little
+        per += 0.5
+        pages = fill(per)
     return pages

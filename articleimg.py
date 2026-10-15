@@ -10,10 +10,16 @@ import io
 import re
 import sys
 
-import requests
-from PIL import Image, ImageDraw, ImageOps
+from pathlib import Path
+from urllib.parse import urlparse
 
-import card
+import arabic_reshaper
+import requests
+from bidi.algorithm import get_display
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+FONT_BOLD = Path(__file__).resolve().parent / "assets" / "fonts" / "Cairo-ExtraBold.ttf"
+GOLD = (255, 224, 102)  # self-contained on purpose: this module does not depend on card.py
 
 UA = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -58,8 +64,8 @@ def _fit(im, lo=0.8, hi=1.91, top_bias=0.3):
 def _mark(im, brand):
     """Small brand badge, bottom-right, on a soft dark pill."""
     w, h = im.size
-    f = card._font(card.FONT_BOLD, max(26, int(w * 0.034)))
-    txt = card._shape(brand)
+    f = ImageFont.truetype(str(FONT_BOLD), max(26, int(w * 0.034)), layout_engine=ImageFont.Layout.BASIC)
+    txt = get_display(arabic_reshaper.reshape(brand))
     tw = f.getlength(txt)
     l, t, r, b = f.getbbox(txt)
     padx, pady = int(w * 0.018), int(w * 0.010)
@@ -69,7 +75,7 @@ def _mark(im, brand):
     d = ImageDraw.Draw(layer)
     x1, y1 = w - m, h - m
     d.rounded_rectangle((x1 - bw, y1 - bh, x1, y1), radius=bh // 2, fill=(0, 0, 0, 150))
-    d.text((x1 - bw + padx, y1 - bh + pady - t), txt, font=f, fill=card.GOLD)
+    d.text((x1 - bw + padx, y1 - bh + pady - t), txt, font=f, fill=GOLD)
     return Image.alpha_composite(im.convert("RGBA"), layer).convert("RGB")
 
 
@@ -89,7 +95,10 @@ def process(raw, cfg, brand):
         k = longest / max(im.size)
         im = im.resize((int(im.width * k), int(im.height * k)), Image.LANCZOS)
     if cfg.get("brand_mark", True):
-        im = _mark(im, brand)
+        try:
+            im = _mark(im, brand)
+        except Exception as e:  # a failing badge must never cost the post its photo
+            print(f"[article-image] brand badge skipped ({e})", file=sys.stderr)
     out = io.BytesIO()
     im.save(out, "JPEG", quality=90, optimize=True)
     return out.getvalue()
@@ -110,6 +119,10 @@ def pick(item, recent, cfg, brand="شيكس", verbose=True):
         key = hashlib.sha1(url.encode()).hexdigest()[:16]
         if key in recent:
             say(f"skip (used recently): {url[:90]}")
+            continue
+        host = urlparse(url).netloc.lower()
+        if any(h.lower() in host for h in cfg.get("skip_hosts") or []):
+            say(f"skip (host in skip_hosts): {url[:90]}")
             continue
         if BAD_URL.search(url):
             say(f"skip (logo/placeholder-like url): {url[:90]}")
